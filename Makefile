@@ -26,7 +26,8 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 \
                      -Wall -Wextra -mgeneral-regs-only
 
-.PHONY: all payload m1ctl kernel probe qemu offline test clean
+.PHONY: all payload m1ctl kernel probe qemu offline test clean \
+        usb-watch usb-watch-test usb-watch-check
 
 all: payload m1ctl
 
@@ -57,6 +58,45 @@ m1ctl: $(M1CTL)
 
 $(M1CTL): tools/host/m1ctl.c platform/apple/a8/m1_a8.h | $(BUILD)
 	$(CC_HOST) -O2 -Wall -Wextra -o $@ tools/host/m1ctl.c -lusb-1.0
+
+# ========================================================================
+# M-P1.3 Tier-1 USB Watch (host observation tool for PongoOS device)
+# ========================================================================
+
+USB_WATCH := $(BUILD)/usb_watch
+
+usb-watch: $(USB_WATCH)
+
+$(USB_WATCH): tools/host/usb_watch.c | $(BUILD)
+	$(CC_HOST) -O2 -Wall -Wextra -pthread -o $@ tools/host/usb_watch.c -lusb-1.0
+
+# Offline C-level harness: links the REAL usb_watch.c (as usb_watch_main)
+# against a mock libusb backend. No USB hardware or libusb needed.
+USB_WATCH_MOCK_DIR := tests/mock
+USB_WATCH_TEST     := $(BUILD)/test_usb_watch
+
+usb-watch-test: $(USB_WATCH_TEST)
+	$(USB_WATCH_TEST)
+
+# Build + offline Python checks (real binary arg/signal handling + C harness).
+usb-watch-check: $(USB_WATCH) $(USB_WATCH_TEST)
+	python3 tests/test_usb_watch.py
+
+$(BUILD)/usb_watch_impl.o: tools/host/usb_watch.c | $(BUILD)
+	$(CC_HOST) -O2 -Wall -Wextra -pthread -I$(USB_WATCH_MOCK_DIR) \
+		-Dmain=usb_watch_main -c $< -o $@
+
+$(BUILD)/mock_usb.o: tests/mock_usb.c tests/mock_usb.h \
+                     tests/mock/libusb-1.0/libusb.h | $(BUILD)
+	$(CC_HOST) -O2 -Wall -Wextra -pthread -I$(USB_WATCH_MOCK_DIR) -c $< -o $@
+
+$(BUILD)/test_usb_watch_c.o: tests/test_usb_watch_c.c tests/mock_usb.h \
+                             tests/mock/libusb-1.0/libusb.h | $(BUILD)
+	$(CC_HOST) -O2 -Wall -Wextra -pthread -I$(USB_WATCH_MOCK_DIR) -c $< -o $@
+
+$(USB_WATCH_TEST): $(BUILD)/usb_watch_impl.o $(BUILD)/mock_usb.o \
+                   $(BUILD)/test_usb_watch_c.o
+	$(CC_HOST) -pthread -o $@ $^
 
 # ========================================================================
 # M-P1 PongoOS Probe (iPhone 6 raw image for `bootr`) - must stay <= 1 MiB
