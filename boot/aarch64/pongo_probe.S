@@ -176,10 +176,22 @@ probe_magic:
     .quad   0x313042525031504D        /* "MP1PRB01" */
 
 
-/* Report block: file offset RPT_OFF (placed by pongo_probe.ld). */
+/* Report block: file offset RPT_OFF (placed by pongo_probe.ld).
+ *
+ * The STATIC header (magic/version/size) is pre-initialized in the file so
+ * the raw image itself carries MP1PRB01 at +0x200. That makes the uploaded
+ * bytes verifiable BEFORE `bootr` (Tier-0 shell readback) and satisfies the
+ * binary invariant in tests/check_pongo_probe.py. The entry code rewrites
+ * these three fields at runtime with the same values; the DYNAMIC fields
+ * (+0x10..) stay zero in the file because they are only known on device.
+ * Only immediate constants are emitted here (no symbol addresses), so no
+ * relocation is created. */
     .section .report, "aw"
     .global probe_report
     .type probe_report, %object
 probe_report:
-    .skip   RPT_SIZE
+    .quad   0x313042525031504D        /* +0x00 u64 magic "MP1PRB01" */
+    .long   RPT_VERSION               /* +0x08 u32 version (1)      */
+    .long   RPT_SIZE                  /* +0x0C u32 report_size      */
+    .skip   RPT_SIZE - 16             /* +0x10 dynamic fields: zero */
     .size probe_report, .-probe_report
