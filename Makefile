@@ -26,7 +26,7 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 \
                      -Wall -Wextra -mgeneral-regs-only
 
-.PHONY: all payload m1ctl kernel qemu offline test clean
+.PHONY: all payload m1ctl kernel probe qemu offline test clean
 
 all: payload m1ctl
 
@@ -57,6 +57,27 @@ m1ctl: $(M1CTL)
 
 $(M1CTL): tools/host/m1ctl.c platform/apple/a8/m1_a8.h | $(BUILD)
 	$(CC_HOST) -O2 -Wall -Wextra -o $@ tools/host/m1ctl.c -lusb-1.0
+
+# ========================================================================
+# M-P1 PongoOS Probe (iPhone 6 raw image for `bootr`) - must stay <= 1 MiB
+# Entry at file offset 0; position-independent; report block at +0x200.
+# Requires an AArch64 linker (e.g. Arch dev machine); NOT built on hosts
+# without aarch64-linux-gnu-ld. QEMU kernel path above is untouched.
+# ========================================================================
+
+PROBE_ELF := $(BUILD)/pongo_probe.elf
+PROBE_BIN := $(BUILD)/pongo_probe.bin
+
+probe: $(PROBE_BIN)
+
+$(BUILD)/pongo_probe.o: boot/aarch64/pongo_probe.S | $(BUILD)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(PROBE_ELF): $(BUILD)/pongo_probe.o boot/aarch64/pongo_probe.ld
+	$(CROSS_LD) -T boot/aarch64/pongo_probe.ld --build-id=none -o $@ $(BUILD)/pongo_probe.o
+
+$(PROBE_BIN): $(PROBE_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
 
 # ========================================================================
 # QEMU Kernel (runtime test) - separate from M1 payload
