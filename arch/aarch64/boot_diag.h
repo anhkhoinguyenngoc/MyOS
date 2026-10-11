@@ -197,6 +197,9 @@ typedef struct {
 #define DIAG_STATE_MAGIC    0x44494147  /* "DIAG" */
 #define DIAG_STATE_VERSION  1
 
+/* Get current boot stage (for exception handlers) */
+boot_stage_t boot_diag_get_current_stage(void);
+
 /* ========================================================================
  * CONSOLE ABSTRACTION
  *

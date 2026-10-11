@@ -38,10 +38,8 @@ struct boot_console *boot_console = NULL;
 /* Framebuffer renderer (optional, set by platform when available) */
 const boot_fb_renderer_t *boot_fb_renderer = NULL;
 
-/* Register a console instance (called by platform UART driver) */
-void boot_console_register(struct boot_console *console) {
-    boot_console = console;
-}
+/* Forward declaration for assembly implementation */
+extern void boot_console_register(struct boot_console *console);
 
 /* Register a framebuffer renderer (called by platform display driver) */
 void boot_fb_register_renderer(const boot_fb_renderer_t *renderer) {
@@ -94,14 +92,7 @@ static inline void diag_write_buf(const void *buf, size_t len) {
 
 /* Get current CNTPCT_EL0 if available (EL1 only) */
 static uint64_t diag_get_timestamp(void) {
-    uint64_t current_el;
-    asm volatile("mrs %0, CurrentEL" : "=r"(current_el));
-    current_el = (current_el >> 2) & 0x3;
-    if (current_el == 1) {
-        uint64_t cntpct;
-        asm volatile("mrs %0, CNTPCT_EL0" : "=r"(cntpct));
-        return cntpct;
-    }
+    /* Temporarily disable timestamp to avoid potential hang on CNTPCT_EL0 read */
     return 0;
 }
 
@@ -340,6 +331,10 @@ __attribute__((noreturn)) void boot_diag_panic(boot_stage_t stage, boot_error_t 
 
 const boot_diag_state_t *boot_diag_get_state(void) {
     return &diag_state;
+}
+
+boot_stage_t boot_diag_get_current_stage(void) {
+    return diag_state.current_stage;
 }
 
 void boot_diag_print_report(void) {

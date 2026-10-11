@@ -145,12 +145,12 @@ vector_serror_el0_32:
     stp     x6, x7, [sp, #-16]!     /* elr_el1, spsr_el1 */
 
     /* Load boot stage from diagnostic state */
-    adr     x4, diag_state
-    ldrb    w4, [x4, #16]           /* current_stage offset (after magic,version) */
+    bl      boot_diag_get_current_stage
+    mov     w4, w0                      /* stage in w4 */
 
     /* x0 = base_error (already set), x1 = exc_class (already set) */
-    mov     x2, x4                  /* stage */
-    mov     x3, sp                  /* exception_context_t at current sp */
+    mov     x2, x4                      /* stage */
+    mov     x3, sp                      /* exception_context_t at current sp */
 
     /* Call exception handler (never returns) */
     bl      boot_diag_exception_handler
@@ -200,9 +200,29 @@ serror_exception_handler:
 
 .global vbar_el1_install
 vbar_el1_install:
+    /* Debug: write single char to confirm entry */
+    mov     x0, #0x09000000
+    mov     w1, #'V'
+    str     w1, [x0, #0x00]
+    
     adr     x0, vbar_el1_table
     msr     VBAR_EL1, x0
     isb
+    /* Debug: write single char to confirm return */
+    mov     x0, #0x09000000
+    mov     w1, #'v'
+    str     w1, [x0, #0x00]
+    
+    /* Print "VBAR" to show function was called */
+    mov     x0, #0x09000000
+    mov     w1, #'V'
+    str     w1, [x0, #0x00]
+    mov     w1, #'B'
+    str     w1, [x0, #0x00]
+    mov     w1, #'A'
+    str     w1, [x0, #0x00]
+    mov     w1, #'R'
+    str     w1, [x0, #0x00]
     ret
 
 .size vbar_el1_table, .-vbar_el1_table
