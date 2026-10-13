@@ -27,7 +27,9 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -Wall -Wextra -mgeneral-regs-only
 
 .PHONY: all payload m1ctl kernel probe qemu offline test clean \
-        usb-watch usb-watch-test usb-watch-check
+        usb-watch usb-watch-test usb-watch-check pongo-addr-check \
+        pongo-client-test probe-report-test report-readback-test \
+        probe-selfreport-test
 
 all: payload m1ctl
 
@@ -118,6 +120,82 @@ $(PROBE_ELF): $(BUILD)/pongo_probe.o boot/aarch64/pongo_probe.ld
 
 $(PROBE_BIN): $(PROBE_ELF)
 	$(CROSS_OBJCOPY) -O binary $< $@
+
+# ========================================================================
+# M-P2.4 PongoOS symbol / address resolution check (host-side, offline).
+# Resolves link-time symbols from the non-stripped Pongo Mach-O and
+# verifies the address model still matches the pinned source. Does NOT
+# and cannot resolve the runtime upload-buffer address (heap-allocated).
+# ========================================================================
+
+PONGO_ADDR := tools/host/pongo_addr_resolve.py
+
+pongo-addr-check:
+	@echo "=== PongoOS source-assumption verification ==="
+	python3 $(PONGO_ADDR) --verify-source --repo .
+	@echo "=== PongoOS symbol/address resolution tests ==="
+	python3 tests/test_pongo_addr_resolve.py
+	@echo "=== PONGO-ADDR CHECK: PASS ==="
+
+# ========================================================================
+# M-P2.7 Post-handoff probe-report readback proof (host-side, OFFLINE).
+# probe-report-test : report parser vs .equ layout + static header in the
+#                     built probe image (dynamic slots must be zero).
+# pongo-client-test : PongoOS host client protocol against a mock device
+#                     (closed request set: unimplemented IN requests are
+#                     EP0-stalled), plus the handoff-channel SOURCE
+#                     CONTRACT and readback capability inventory proving
+#                     no service survives `bootr` to read report bytes
+#                     back, and the smallest-mechanism primitive check.
+# No hardware, no DFU, no PongoOS entry involved.
+# ========================================================================
+
+probe-report-test:
+	@echo "=== Probe report parser / layout contract ==="
+	python3 tests/test_probe_report.py
+	@echo "=== PROBE-REPORT TEST: PASS ==="
+
+pongo-client-test:
+	@echo "=== PongoOS host client protocol + handoff contract ==="
+	python3 tests/test_pongo_client.py
+	@echo "=== PONGO-CLIENT TEST: PASS ==="
+
+# ========================================================================
+# M-P2.8 Offline report-readback prototype (host-side, OFFLINE, SIMULATED).
+# report-readback-test : selfcheck + deterministic tests for the
+#   source-justified candidate (md8 -> stdout ring -> ep0 IN): fixed-size
+#   report transfer with magic/version/size/reserved/integrity validation
+#   and distinct handling of partial, incomplete, timeout, disconnect,
+#   malformed and unavailable-memory outcomes.  Mock transport only --
+#   no hardware, no DFU, no PongoOS entry, no probe changes.
+# ========================================================================
+
+report-readback-test:
+	@echo "=== M-P2.8 offline report-readback prototype (SIMULATED) ==="
+	python3 tools/host/report_readback.py --selfcheck
+	python3 tests/test_report_readback.py
+	@echo "=== M-P2.10 post-handoff readback design (source-contract) ==="
+	python3 tests/test_readback_design.py
+	@echo "=== REPORT-READBACK TEST: PASS ==="
+
+# ========================================================================
+# M-P2.11 Pre-Handoff Self-Report (design B; host-side, OFFLINE).
+# Generates and validates the MP1PRB01 report BEFORE `bootr`, so the
+# readback path never depends on USB servicing after the raw jump.
+#   probe-selfreport-test : offline self-check + exact-layout / register-
+#     field provenance / invalid-data / host-parsing tests, plus the
+#     source contract design B rests on (bootr teardown ordering, jump
+#     register contract, MIDR/CNTFRQ absence, shell command inventory,
+#     caller-supplied-address rule).  Reads pongoos-src, does NOT modify
+#     it; does not rebuild or modify the existing probe binary; no
+#     hardware, no DFU, no payload upload, no boot.
+# ========================================================================
+
+probe-selfreport-test:
+	@echo "=== M-P2.11 pre-handoff self-report (OFFLINE) ==="
+	python3 tools/host/probe_selfreport.py --selfcheck
+	python3 tests/test_probe_selfreport.py
+	@echo "=== PROBE-SELFREPORT TEST: PASS ==="
 
 # ========================================================================
 # QEMU Kernel (runtime test) - separate from M1 payload

@@ -15,6 +15,11 @@ OBJDUMP="aarch64-linux-gnu-objdump"
 NM="aarch64-linux-gnu-nm"
 READ_ELF="aarch64-linux-gnu-readelf"
 
+# vectors.S is linked into the QEMU kernel, not the M1 payload.
+KERNEL_ELF="build/myos_kernel.elf"
+VECTORS_OBJ="build/vectors.o"
+VECTORS_SRC="arch/aarch64/vectors.S"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -91,28 +96,77 @@ else
     warn "Only $ACTUAL_COUNT stage names found (expected $EXPECTED_COUNT)"
 fi
 
-# 7. Verify exception class constants in vectors_defs.h are reflected
-# Check vectors.o has the constants
-if $OBJDUMP -t /tmp/vectors.o 2>/dev/null | grep -q "EXC_CLASS"; then
-    pass "Exception class constants in vectors.o"
+# 7. Verify exception class constants (vectors_defs.h) are reflected in the
+# vectors object. EXC_CLASS_* are compile-time macros: they live in the header
+# and as immediate operands in vectors.o, never as symbols.
+EXC_DEFS=0
+for c in EXC_CLASS_SYNC EXC_CLASS_IRQ EXC_CLASS_FIQ EXC_CLASS_SERROR; do
+    grep -q "define $c" arch/aarch64/vectors_defs.h && EXC_DEFS=$((EXC_DEFS + 1)) || true
+done
+if [[ "$EXC_DEFS" -eq 4 ]]; then
+    pass "Exception class constants defined in vectors_defs.h (4/4)"
 else
-    warn "Could not verify vectors.o constants"
+    fail "vectors_defs.h missing exception class constants ($EXC_DEFS/4)"
+fi
+if [[ -f "$VECTORS_OBJ" ]] && $NM "$VECTORS_OBJ" | grep -q " vbar_el1_table$"; then
+    pass "Vector table symbol present in $VECTORS_OBJ"
+else
+    warn "vectors.o not built (run 'make kernel' for object-level vector checks)"
 fi
 
-# 8. Diagnostic state structure layout - verify size and key fields
-# The diag_state symbol should be in .data section
-$NM "$PAYLOAD_ELF" | grep -q " D diag_state$" && pass "diag_state in .data section" || warn "diag_state section check"
-
-# 9. Verify .text.vectors section exists (from vectors.S)
-$READ_ELF -S "$PAYLOAD_ELF" | grep -q "\.text\.vectors" && pass ".text.vectors section present" || warn ".text.vectors section not found"
-
-# 10. Verify vectors.S compiled with correct alignment (2KB = 0x800)
-# Check the section alignment in the ELF
-VEC_ALIGN=$($READ_ELF -S "$PAYLOAD_ELF" | grep "\.text\.vectors" | awk '{print $10}')
-if [[ "$VEC_ALIGN" == "2**11" ]] || [[ "$VEC_ALIGN" == "2048" ]] || [[ "$VEC_ALIGN" == "0x800" ]]; then
-    pass "Vector table 2KB aligned"
+# 8. Diagnostic state structure layout - diag_state must be a data symbol.
+# nm prints 'd'/'D' for .data (lower/upper case by binding) and 'b'/'B' for
+# .bss; accept either case for the data-section check.
+if $NM "$PAYLOAD_ELF" | grep -qE " [dD] diag_state$"; then
+    pass "diag_state is a data symbol"
 else
-    warn "Vector table alignment: $VEC_ALIGN (expected 2**11)"
+    warn "diag_state section check"
+fi
+
+# 9. Vector table section (.text.vectors) and 2KB alignment.
+# vectors.S emits `.section .text.vectors` with `.align 11` (2048 bytes).
+# IMPORTANT: vectors.S is linked into the QEMU kernel, NOT the M1 payload, and
+# both linker scripts fold `*(.text.*)` into the output `.text`. Hence
+# `.text.vectors` exists in the *object* build/vectors.o but is never a linked
+# ELF section. Verify (a) the source declaration, (b) the object alignment,
+# and (c) the linked `vbar_el1_table` placement.
+vec_src=0
+grep -q '\.section[[:space:]]\+\.text\.vectors' "$VECTORS_SRC" && vec_src=$((vec_src + 1)) || true
+grep -qE '^[[:space:]]*\.align[[:space:]]+11([[:space:]]|$)' "$VECTORS_SRC" && vec_src=$((vec_src + 1)) || true
+if [[ "$vec_src" -eq 2 ]]; then
+    pass "vectors.S declares .text.vectors with 2KB (.align 11) alignment"
+else
+    fail "vectors.S missing .text.vectors / .align 11 ($vec_src/2)"
+fi
+
+# 10. Alignment evidence from the authoritative artifacts.
+if [[ -f "$VECTORS_OBJ" ]]; then
+    # objdump prints the section alignment as 2**11 for a 2048-byte section.
+    VEC_ALIGN=$($OBJDUMP -h "$VECTORS_OBJ" | awk '$2==".text.vectors"{print $NF; exit}')
+    if [[ "$VEC_ALIGN" == "2**11" ]]; then
+        pass "vectors.o .text.vectors alignment is 2**11 (2048 bytes)"
+    else
+        fail "vectors.o .text.vectors alignment: ${VEC_ALIGN:-<none>} (expected 2**11)"
+    fi
+else
+    warn "vectors.o not built; object alignment check skipped"
+fi
+
+# Linked placement: vbar_el1_table must land on a 2KB boundary in the kernel.
+if [[ -f "$KERNEL_ELF" ]]; then
+    VEC_HEX=$($NM "$KERNEL_ELF" | awk '$3=="vbar_el1_table"{print $1; exit}')
+    if [[ -n "$VEC_HEX" ]]; then
+        VEC_ADDR=$((16#$VEC_HEX))
+        if (( VEC_ADDR % 2048 == 0 )); then
+            pass "linked vbar_el1_table is 2KB aligned (0x$(printf '%x' "$VEC_ADDR"))"
+        else
+            fail "linked vbar_el1_table not 2KB aligned (0x$(printf '%x' "$VEC_ADDR"))"
+        fi
+    else
+        warn "vbar_el1_table not found in $KERNEL_ELF"
+    fi
+else
+    warn "kernel ELF not built; linked vector-table placement check skipped"
 fi
 
 # 11. Verify no heap allocation symbols
@@ -131,8 +185,13 @@ else
 fi
 
 # 12. Verify diagnostic state size is reasonable
-# diag_state should be in .data/.bss
-DIAG_SIZE=$($READ_ELF -S "$PAYLOAD_ELF" | grep -E "(\.data|\.bss)" | awk '{print $6}' | paste -sd+ - | bc)
+# diag_state should be in .data/.bss. Sum the hex section sizes with bash
+# arithmetic via objdump -h (stable columns: $2 = name, $3 = size). No
+# external 'bc' dependency; hex needs 16# conversion.
+DIAG_SIZE=0
+while IFS= read -r _secsize; do
+    [[ -n "$_secsize" ]] && DIAG_SIZE=$((DIAG_SIZE + 16#$_secsize))
+done < <($OBJDUMP -h "$PAYLOAD_ELF" | awk '$2==".data" || $2==".bss" {print $3}')
 if [[ "$DIAG_SIZE" -lt 4096 ]]; then
     pass "Diagnostic state size reasonable ($DIAG_SIZE bytes)"
 else
