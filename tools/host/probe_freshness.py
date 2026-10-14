@@ -66,6 +66,11 @@ def validate_report(blob, expected_token=None):
     if magic == MAGIC_V1 and ver == VERSION_V1:
         if sz != REPORT_SIZE:
             return ("INVALID", {"reason": "v1_bad_size", "size": sz})
+        # Validate reserved_zero field per MP1PRB01 format contract:
+        # offset 0x58 must be zero for v1 (same offset as token in v2).
+        reserved = _unpack_u64(blob, OFF_TOKEN)
+        if reserved != 0:
+            return ("INVALID", {"reason": "v1_bad_reserved", "reserved": reserved})
         return ("LEGACY_VALID_FRESHNESS_UNVERIFIED", {
             "version": "v1",
             "magic": magic.decode("ascii","replace"),

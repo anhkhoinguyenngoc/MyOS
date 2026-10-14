@@ -91,14 +91,21 @@ class TestExactReportLayout(unittest.TestCase):
         blob = bytearray(psr.pristine_upload_blob())
         names = [n for n, _ in pr.DYNAMIC_FIELDS]
         # Distinct non-zero sentinel per slot so a swap cannot pass.
-        sentinels = {n: 0x1000 + i * 0x11 for i, n in enumerate(names)}
+        # reserved_zero MUST be 0 per format contract, so skip it for sentinel.
+        sentinels = {n: (0x1000 + i * 0x11) for i, n in enumerate(names) if n != "reserved_zero"}
         for name, _ in pr.DYNAMIC_FIELDS:
+            if name == "reserved_zero":
+                continue
             struct.pack_into("<Q", blob, equ[_equ_name(name)], sentinels[name])
         parsed = pr.parse_report(bytes(blob))
         for name in names:
-            self.assertEqual(parsed[name], sentinels[name],
-                             "slot %s not at source offset 0x%x"
-                             % (name, equ[_equ_name(name)]))
+            if name == "reserved_zero":
+                self.assertEqual(parsed[name], 0,
+                                 "reserved_zero must be 0 per format contract")
+            else:
+                self.assertEqual(parsed[name], sentinels[name],
+                                 "slot %s not at source offset 0x%x"
+                                 % (name, equ[_equ_name(name)]))
 
     def test_header_equs_come_from_source_too(self):
         equ = pr.equ_constants_from_source(_read(PROBE_S))

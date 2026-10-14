@@ -133,6 +133,14 @@ def parse_report(blob, offset=0):
     }
     for name, off in DYNAMIC_FIELDS:
         report[name] = struct.unpack_from("<Q", slot, off)[0]
+    # Validate reserved field per MP1PRB01 format contract:
+    # boot/aarch64/pongo_probe.S defines RPT_ZERO_OFF = 0x58 with comment
+    # "reserved_zero (always 0)". This is a structural requirement.
+    reserved = report.get("reserved_zero", 0)
+    if reserved != 0:
+        raise ValueError(
+            "reserved field at 0x%x must be zero, got 0x%x"
+            % (EQU_MIRROR["RPT_ZERO_OFF"], reserved))
     return report
 
 
