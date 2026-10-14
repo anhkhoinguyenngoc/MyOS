@@ -287,7 +287,7 @@ class ReportReadback:
         self.maxlen = maxlen
         self.max_polls = max_polls
 
-    def read_report(self, buffer_va):
+    def read_report(self, buffer_va, expected_token=None):
         """Read and validate the fixed-size report at
         buffer_va + RPT_OFF through the stdout channel."""
         if not isinstance(buffer_va, int) or buffer_va <= 0:
@@ -315,7 +315,7 @@ class ReportReadback:
         self.client.send_command("md8 0x%x 0x%x" % (addr, probe_report.RPT_SIZE))
         text = self._collect()
         blob = parse_md8_strict(text, addr, probe_report.RPT_SIZE)
-        return validate_report(blob)
+        return validate_report(blob, expected_token=expected_token)
 
     def _collect(self):
         """Drain stdout until empty AND the command is idle, within the
