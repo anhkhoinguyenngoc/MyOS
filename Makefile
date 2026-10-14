@@ -28,7 +28,7 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
 
 .PHONY: all payload m1ctl kernel probe qemu offline test clean \
         usb-watch usb-watch-test usb-watch-check pongo-addr-check \
-        pongo-artifact-check \
+        pongo-artifact-check regs-output-check \
         pongo-client-test probe-report-test report-readback-test \
         probe-selfreport-test
 
@@ -157,6 +157,21 @@ pongo-artifact-check:
 		echo "(tip: pass PONGO_ARTIFACT_DIR=artifacts/<milestone-commit> to validate a preserved artifact)"; \
 	fi
 	@echo "=== PONGO-ARTIFACT CHECK: PASS ==="
+
+# ========================================================================
+# M-P2.32 PongoOS `regs` shell-command output contract (host-side, OFFLINE).
+# Parses/validates the text `regs` prints over the Pongo shell, against a
+# parser whose field set/order is re-derived from regs.c. Synthetic fixtures
+# only; never asserts an Apple A8 runtime value; no hardware, no boot.
+#   make regs-output-check
+# ========================================================================
+
+regs-output-check:
+	@echo "=== regs output contract (source check) ==="
+	python3 tools/host/regs_output.py --source-check
+	@echo "=== regs output contract fixtures ==="
+	python3 tests/test_regs_output.py
+	@echo "=== REGS-OUTPUT CHECK: PASS ==="
 
 # ========================================================================
 # M-P2.7 Post-handoff probe-report readback proof (host-side, OFFLINE).
