@@ -154,6 +154,7 @@ class MalformedReport(ReadbackError):
 
 _ROW_RE = re.compile(r"^(?:0x)?([0-9a-fA-F]+):\s*(.*)$")
 _OCTET_RE = re.compile(r"^(?:0x)?[0-9a-fA-F]{2}$")
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def parse_md8_strict(data, base, size):
@@ -172,6 +173,8 @@ def parse_md8_strict(data, base, size):
 
     exp_rows = (size + HEXDUMP_COLS - 1) // HEXDUMP_COLS
     rows = []
+    # Strip ANSI escape sequences globally first (they may appear anywhere)
+    text = _ANSI_RE.sub("", text)
     for raw in text.splitlines():
         line = raw.strip()
         if not line:

@@ -381,10 +381,22 @@ class PongoClient:
         (pre-handoff).  After `bootr` the device is gone (usb_teardown)
         and PongoChannelGone is raised -- that IS the proof that no
         post-handoff readback path exists.
+
+        The returned report is validated for structural integrity:
+        exact size, magic MP1PRB01, version 1, report_size 0x60, and
+        reserved_zero == 0 (per the MP1PRB01 format contract).
         """
         text = self.md8(buffer_va + rpt_off, rpt_size)
         blob = parse_hexdump(text)
-        return probe_report.parse_report(blob), text
+        report = probe_report.parse_report(blob)
+        # Validate reserved field per MP1PRB01 format (same as
+        # report_readback.validate_report and probe_selfreport.validate_prehandoff).
+        reserved = report.get("reserved_zero", 0)
+        if reserved != 0:
+            raise ValueError(
+                "reserved field at 0x%x must be zero, got 0x%x"
+                % (probe_report.EQU_MIRROR["RPT_ZERO_OFF"], reserved))
+        return report, text
 
 
 # ---------------------------------------------------------------------------

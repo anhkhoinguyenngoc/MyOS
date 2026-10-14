@@ -134,6 +134,21 @@ class TestClientProtocol(unittest.TestCase):
         self.assertEqual(report["x30_entry"], 0x180510020)
         self.assertEqual(report["current_el"], 0x8)
 
+    def test_read_report_via_md8_rejects_reserved_nonzero(self):
+        """M-P2.45: legacy API must validate reserved_zero == 0, same as
+        ReportReadback and probe_selfreport."""
+        # Build a report with reserved_zero = 1 (all other fields valid)
+        bad = bytearray(self.rpt)
+        struct.pack_into("<Q", bad, pr.EQU_MIRROR["RPT_ZERO_OFF"], 1)
+        mem = SparseMemory(limit=self.buf_va + 0x200 + pr.RPT_SIZE)
+        mem.poke(self.buf_va + 0x200, bytes(bad))
+        dev = MockPongoDevice(memory=mem, alive=True)
+        client = PongoClient(dev)
+        with self.assertRaises(ValueError) as cm:
+            client.read_report_via_md8(self.buf_va)
+        self.assertIn("reserved field", str(cm.exception))
+        self.assertIn("must be zero", str(cm.exception))
+
     def test_parse_hexdump_ignores_address_columns(self):
         sample = (
             "0x000000000: " + " ".join("%02x" % b for b in self.rpt[:8])
