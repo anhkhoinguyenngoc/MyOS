@@ -99,6 +99,12 @@ try:
 except Exception:
     _HAS_FRESH = False
     _fresh_validate_report = None  # type: ignore
+try:
+    from probe_freshness import validate_report as _fresh_validate_report
+    _HAS_FRESH = True
+except Exception:
+    _HAS_FRESH = False
+    _fresh_validate_report = None  # type: ignore
 from pongo_client import (  # noqa: E402
     PongoClient,
     PongoChannelGone,
