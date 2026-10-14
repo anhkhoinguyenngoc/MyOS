@@ -93,6 +93,12 @@ _HOST_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HOST_DIR not in sys.path:
     sys.path.insert(0, _HOST_DIR)
 import probe_report  # noqa: E402
+try:
+    from probe_freshness import validate_report as _fresh_validate_report
+    _HAS_FRESH = True
+except Exception:
+    _HAS_FRESH = False
+    _fresh_validate_report = None  # type: ignore
 from pongo_client import (  # noqa: E402
     PongoClient,
     PongoChannelGone,
@@ -216,9 +222,26 @@ def parse_md8_strict(data, base, size):
     return bytes(out)
 
 
-def validate_report(blob):
-    """Validate magic, version, size and reserved fields of a
-    fixed-size (RPT_SIZE) report blob; returns the parsed report dict."""
+def validate_report(blob, expected_token=None):
+    """Validate report using canonical freshness validator where available.
+    Falls back to legacy structural validation if freshness module unavailable.
+    Returns the parsed/validated report dict on success for legacy path,
+    otherwise raises MalformedReport on invalid; status semantics are
+    exposed via caller-side checks when using canonical validator."""
+    if _HAS_FRESH and _fresh_validate_report is not None:
+        st, det = _fresh_validate_report(blob, expected_token=expected_token)
+        if st == "INVALID":
+            raise MalformedReport("freshness: INVALID (%s)" % det)
+        if st == "V2_VALID_STALE":
+            raise MalformedReport("freshness: V2_VALID_STALE (%s)" % det)
+        # For canonical cases, propagate semantic status via exception? No.
+        # But we need to preserve legacy API returning report dict.
+        # Return a small dict carrying status for callers that inspect.
+        return {
+            "freshness_status": st,
+            "freshness_detail": det,
+        }
+    # Legacy path
     if blob is None or len(blob) != probe_report.RPT_SIZE:
         raise MalformedReport(
             "report must be exactly 0x%x bytes, got %s"
