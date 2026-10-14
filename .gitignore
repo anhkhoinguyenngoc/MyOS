@@ -5,6 +5,14 @@ build/
 *.elf
 m1ctl
 
+# Preserved build artifacts and their local evidence (kept out of Git;
+# regenerated locally, see artifacts/*/MANIFEST.md). M-P2.30.
+artifacts/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
 # Toolchains and external deps
 myos-toolchain10/
 pongoos-src/

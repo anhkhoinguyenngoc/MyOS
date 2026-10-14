@@ -24,6 +24,7 @@ Evidence anchors (pinned checkout):
 
 Usage:
   python3 tools/host/pongo_addr_resolve.py [--macho PATH] [--repo ROOT]
+  python3 tools/host/pongo_addr_resolve.py --artifact-dir artifacts/m-p2.26-cb83dd83
   python3 tools/host/pongo_addr_resolve.py --symbol _loader_xfer_recv_data
   python3 tools/host/pongo_addr_resolve.py --symbol _pongo_entry --slide 0x1000
   python3 tools/host/pongo_addr_resolve.py --symbol _pongo_entry --pongo-base 0x100000000
@@ -31,6 +32,16 @@ Usage:
   python3 tools/host/pongo_addr_resolve.py --buffer-va  0x412340000
   python3 tools/host/pongo_addr_resolve.py --verify-source
   python3 tools/host/pongo_addr_resolve.py --json
+
+Artifact selection (M-P2.30):
+  The default artifact path is unchanged: with neither flag the resolver uses
+  <repo>/pongoos-src/build/Pongo. Two explicit, mutually-exclusive selectors
+  exist and never fall back to the default:
+    --macho PATH       use exactly this PongoOS Mach-O file
+    --artifact-dir DIR use the Pongo Mach-O inside a preserved artifact
+                       directory (DIR/Pongo or DIR/artifacts/Pongo)
+  Selecting an artifact only PARSES it; the resolver never executes code and
+  never touches a device.
 
 Exit codes:
   0  success (all requested facts resolved with the evidence given)
@@ -97,6 +108,34 @@ KEY_SYMBOLS = [
     "_ppage_list",
     "_ppages",
 ]
+
+
+# --------------------------------------------------------------------------
+# Artifact selection (paths only; nothing here executes code)
+# --------------------------------------------------------------------------
+def default_macho_path(repo):
+    """The historical default artifact: the local PongoOS checkout build.
+
+    Kept exactly where it has always been so existing callers (and the
+    pinned-offset tests) see no change.
+    """
+    return os.path.join(repo, "pongoos-src", "build", "Pongo")
+
+
+def locate_artifact_macho(dirpath):
+    """Find the Pongo Mach-O inside a preserved artifact directory.
+
+    Accepts either the top-level versioned directory (which contains
+    ``artifacts/Pongo``) or the inner ``artifacts`` directory itself.
+    Returns an absolute path, or None if neither layout matches.
+    """
+    if not dirpath:
+        return None
+    for rel in ("Pongo", os.path.join("artifacts", "Pongo")):
+        cand = os.path.join(dirpath, rel)
+        if os.path.isfile(cand):
+            return os.path.abspath(cand)
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -388,6 +427,10 @@ def main(argv=None):
     ap.add_argument("--macho", default=None,
                     help="path to Pongo Mach-O "
                          "(default: pongoos-src/build/Pongo)")
+    ap.add_argument("--artifact-dir", default=None,
+                    help="preserved artifact directory containing a PongoOS "
+                         "Mach-O (DIR/Pongo or DIR/artifacts/Pongo); mutually "
+                         "exclusive with --macho")
     ap.add_argument("--repo", default=None, help="repository root")
     ap.add_argument("--symbol", default=None, help="resolve one symbol")
     ap.add_argument("--slide", default=None,
@@ -410,6 +453,12 @@ def main(argv=None):
     kc = int(args.k_cacheable_view, 16) if args.k_cacheable_view \
         else K_CACHEABLE_VIEW_DEFAULT
 
+    if args.macho and args.artifact_dir:
+        print("ERROR: --macho and --artifact-dir are mutually exclusive "
+              "(give an explicit file or an artifact directory, not both)",
+              file=sys.stderr)
+        return 2
+
     rc = 0
 
     if args.verify_source:
@@ -428,7 +477,16 @@ def main(argv=None):
         if not (args.symbol or args.buffer_pa or args.buffer_va):
             return rc
 
-    macho_path = args.macho or os.path.join(repo, "pongoos-src", "build", "Pongo")
+    if args.artifact_dir:
+        located = locate_artifact_macho(args.artifact_dir)
+        if located is None:
+            print("ERROR: no PongoOS Mach-O found in artifact directory %s "
+                  "(looked for Pongo and artifacts/Pongo)"
+                  % args.artifact_dir, file=sys.stderr)
+            return 1
+        macho_path = located
+    else:
+        macho_path = args.macho or default_macho_path(repo)
     if args.symbol:
         try:
             m = parse_macho(macho_path)

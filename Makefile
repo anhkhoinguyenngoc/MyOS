@@ -28,6 +28,7 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
 
 .PHONY: all payload m1ctl kernel probe qemu offline test clean \
         usb-watch usb-watch-test usb-watch-check pongo-addr-check \
+        pongo-artifact-check \
         pongo-client-test probe-report-test report-readback-test \
         probe-selfreport-test
 
@@ -136,6 +137,26 @@ pongo-addr-check:
 	@echo "=== PongoOS symbol/address resolution tests ==="
 	python3 tests/test_pongo_addr_resolve.py
 	@echo "=== PONGO-ADDR CHECK: PASS ==="
+
+# ========================================================================
+# M-P2.30 Explicit preserved-artifact selection (host-side, OFFLINE).
+# Selects a preserved PongoOS Mach-O explicitly, without touching the
+# default pongoos-src/build/Pongo (no bytes/timestamps change). Never
+# executes code and never contacts a device.
+#   make pongo-artifact-check
+#   make pongo-artifact-check PONGO_ARTIFACT_DIR=artifacts/m-p2.26-cb83dd83
+# ========================================================================
+
+pongo-artifact-check:
+	@echo "=== explicit artifact-selection tests ==="
+	python3 tests/test_pongo_artifact_select.py
+	@if [ -n "$(PONGO_ARTIFACT_DIR)" ]; then \
+		echo "=== validate preserved artifact: $(PONGO_ARTIFACT_DIR) ==="; \
+		python3 $(PONGO_ADDR) --artifact-dir "$(PONGO_ARTIFACT_DIR)" --json; \
+	else \
+		echo "(tip: pass PONGO_ARTIFACT_DIR=artifacts/<milestone-commit> to validate a preserved artifact)"; \
+	fi
+	@echo "=== PONGO-ARTIFACT CHECK: PASS ==="
 
 # ========================================================================
 # M-P2.7 Post-handoff probe-report readback proof (host-side, OFFLINE).
