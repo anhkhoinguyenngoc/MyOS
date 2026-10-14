@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools", "host"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "host"))
 import probe_freshness as pf
 
 # v1 layout constants
@@ -116,6 +116,29 @@ class TestV2(unittest.TestCase):
         struct.pack_into("<I", b, OFF_VER, 5)
         st,_ = pf.validate_report(bytes(b))
         self.assertEqual(st, "INVALID")
+
+
+class TestCli(unittest.TestCase):
+    """M-P2.44: malformed --expected-token must be a clean usage error
+    (exit 2), not an uncaught ValueError traceback."""
+
+    def _blob_path(self, data):
+        fd, path = tempfile.mkstemp(suffix=".bin")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        self.addCleanup(os.unlink, path)
+        return path
+
+    def test_malformed_token_is_usage_error(self):
+        path = self._blob_path(_make_v2())
+        rc = pf.main(["--blob", path, "--expected-token", "notanumber"])
+        self.assertEqual(rc, 2)
+
+    def test_valid_token_still_accepted(self):
+        path = self._blob_path(_make_v2(0xABC))
+        rc = pf.main(["--blob", path, "--expected-token", "0xabc"])
+        self.assertEqual(rc, 0)
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main(verbosity=2))

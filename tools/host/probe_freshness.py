@@ -124,7 +124,13 @@ def main(argv=None):
     except OSError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    tok = _parse_token(args.expected_token)
+    try:
+        tok = _parse_token(args.expected_token)
+    except ValueError:
+        print("ERROR: --expected-token expects an integer (decimal or "
+              "0x-prefixed hex), got %r" % args.expected_token,
+              file=sys.stderr)
+        return 2
     st, det = validate_report(data, expected_token=tok)
     print(st)
     for k,v in sorted(det.items()):

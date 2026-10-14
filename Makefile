@@ -312,6 +312,32 @@ test: offline
 test-all: test qemu
 
 # ========================================================================
+# M-P2.44 aggregate host-side regression runner.
+# Runs EVERY tests/test_*.py so a newly added test can never be silently
+# omitted from the regression set.  The M-P2.36 report_readback regression
+# slipped through precisely because the earlier runner listed tests by
+# hand and left test_report_readback.py out.  OFFLINE only: no hardware,
+# no DFU, no cross-build, no PongoOS entry, no probe change.
+# ========================================================================
+
+host-test-all:
+	@echo "=== aggregate host-side regression (OFFLINE) ==="
+	@fail=0; \
+	for t in tests/test_*.py; do \
+	  log=$$(mktemp); \
+	  if python3 "$$t" >"$$log" 2>&1; then \
+	    echo "PASS $$t"; \
+	  else \
+	    echo "FAIL $$t"; cat "$$log"; fail=1; \
+	  fi; \
+	  rm -f "$$log"; \
+	done; \
+	if [ $$fail -eq 0 ]; then echo "=== HOST-TEST-ALL: PASS ==="; \
+	else echo "=== HOST-TEST-ALL: FAIL ==="; exit 1; fi
+
+.PHONY: host-test-all
+
+# ========================================================================
 # M2 Kernel Image Format Check (host-side, no device required)
 #   1. Generate a valid canonical M2 image
 #   2. Validate it with the host validator

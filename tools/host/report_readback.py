@@ -99,12 +99,6 @@ try:
 except Exception:
     _HAS_FRESH = False
     _fresh_validate_report = None  # type: ignore
-try:
-    from probe_freshness import validate_report as _fresh_validate_report
-    _HAS_FRESH = True
-except Exception:
-    _HAS_FRESH = False
-    _fresh_validate_report = None  # type: ignore
 from pongo_client import (  # noqa: E402
     PongoClient,
     PongoChannelGone,
@@ -229,25 +223,33 @@ def parse_md8_strict(data, base, size):
 
 
 def validate_report(blob, expected_token=None):
-    """Validate report using canonical freshness validator where available.
-    Falls back to legacy structural validation if freshness module unavailable.
-    Returns the parsed/validated report dict on success for legacy path,
-    otherwise raises MalformedReport on invalid; status semantics are
-    exposed via caller-side checks when using canonical validator."""
+    """Validate a fixed-size (RPT_SIZE) report and classify its freshness.
+
+    Legacy contract preserved: on success this returns the PARSED report
+    dict (magic / version / report_size plus one u64 per dynamic slot), so
+    existing callers that read `report["magic"]` etc. keep working.  The
+    structural rules are still enforced here -- exact size, then
+    probe_report.parse_report (magic/version/size agreement) and the v1
+    reserved-field-must-be-zero rule -- and any violation raises
+    MalformedReport.
+
+    When the canonical freshness validator (probe_freshness) is available
+    the same dict additionally carries 'freshness_status' and
+    'freshness_detail'.  A genuine MP1PRB02 (v2) report is structurally
+    vetted by that validator but cannot be parsed by the v1 parser, so it
+    returns a freshness-only dict.  A stale v2 report raises
+    MalformedReport (mismatched token is never accepted as fresh).
+    """
+    st = None
+    det = None
     if _HAS_FRESH and _fresh_validate_report is not None:
         st, det = _fresh_validate_report(blob, expected_token=expected_token)
         if st == "INVALID":
             raise MalformedReport("freshness: INVALID (%s)" % det)
         if st == "V2_VALID_STALE":
             raise MalformedReport("freshness: V2_VALID_STALE (%s)" % det)
-        # For canonical cases, propagate semantic status via exception? No.
-        # But we need to preserve legacy API returning report dict.
-        # Return a small dict carrying status for callers that inspect.
-        return {
-            "freshness_status": st,
-            "freshness_detail": det,
-        }
-    # Legacy path
+
+    # Structural validation (the legacy contract).
     if blob is None or len(blob) != probe_report.RPT_SIZE:
         raise MalformedReport(
             "report must be exactly 0x%x bytes, got %s"
@@ -256,12 +258,20 @@ def validate_report(blob, expected_token=None):
     try:
         report = probe_report.parse_report(blob)
     except ValueError as exc:
+        # A well-formed v2 report (magic MP1PRB02) is not parseable by the
+        # v1 parser; the canonical validator has already vetted its
+        # structure, so surface the freshness classification instead.
+        if st in ("V2_VALID_FRESH", "V2_VALID_FRESHNESS_UNVERIFIABLE"):
+            return {"freshness_status": st, "freshness_detail": det}
         raise MalformedReport(str(exc))
     reserved = report.get("reserved_zero", 0)
     if reserved != 0:
         raise MalformedReport(
             "reserved field at 0x%x must be zero, got 0x%x"
             % (probe_report.EQU_MIRROR["RPT_ZERO_OFF"], reserved))
+    if st is not None:
+        report["freshness_status"] = st
+        report["freshness_detail"] = det
     return report
 
 

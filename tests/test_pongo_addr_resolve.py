@@ -206,6 +206,55 @@ class SourceAssumptionTests(unittest.TestCase):
         self.assertTrue(ok, "source assumptions NOT found in: %s" % missing)
 
 
+class ExitCodeTests(unittest.TestCase):
+    """M-P2.44: a --verify-source failure must propagate through the
+    process exit code even when a later --symbol resolves successfully.
+    Before the fix, the symbol branch reset rc to 0 and masked the
+    source-assumption failure (OFFLINE; real Mach-O parsed read-only,
+    a temporary empty repo simulates the failing source tree)."""
+
+    REAL_MACHO = os.path.join(REPO, "pongoos-src", "build", "Pongo")
+
+    def test_verify_source_failure_not_masked_by_symbol(self):
+        if not os.path.isfile(self.REAL_MACHO):
+            self.skipTest("real Pongo Mach-O absent")
+        import tempfile
+        with tempfile.TemporaryDirectory() as empty:
+            rc = par.main(["--repo", empty, "--macho", self.REAL_MACHO,
+                           "--verify-source", "--symbol", "_pongo_entry"])
+        self.assertNotEqual(
+            rc, 0, "source-verification failure was masked by --symbol")
+
+    def test_verify_source_failure_alone_is_nonzero(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as empty:
+            rc = par.main(["--repo", empty, "--verify-source"])
+        self.assertNotEqual(rc, 0)
+
+    def test_verify_source_success_with_symbol_is_zero(self):
+        if not os.path.isfile(self.REAL_MACHO):
+            self.skipTest("real Pongo Mach-O absent")
+        rc = par.main(["--repo", REPO, "--verify-source",
+                       "--symbol", "_pongo_entry"])
+        self.assertEqual(rc, 0)
+
+    def test_malformed_buffer_pa_is_usage_error(self):
+        # M-P2.44: malformed hex must be a clean exit 2, not a traceback.
+        rc = par.main(["--buffer-pa", "zzz"])
+        self.assertEqual(rc, 2)
+
+    def test_malformed_kcacheable_is_usage_error(self):
+        rc = par.main(["--buffer-pa", "0x1000", "--k-cacheable-view", "nope"])
+        self.assertEqual(rc, 2)
+
+    def test_malformed_slide_is_usage_error(self):
+        if not os.path.isfile(self.REAL_MACHO):
+            self.skipTest("real Pongo Mach-O absent")
+        rc = par.main(["--macho", self.REAL_MACHO, "--symbol", "_pongo_entry",
+                       "--slide", "nothex"])
+        self.assertEqual(rc, 2)
+
+
 # --------------------------------------------------------------------------
 # Real artifact (parse only; NOT a runtime-address claim)
 # --------------------------------------------------------------------------

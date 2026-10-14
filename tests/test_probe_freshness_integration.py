@@ -9,7 +9,7 @@ import sys
 import struct
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools", "host"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "host"))
 import probe_freshness as pf
 
 MAGIC_V1 = b"MP1PRB01"

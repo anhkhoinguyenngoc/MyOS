@@ -450,8 +450,13 @@ def main(argv=None):
 
     repo = args.repo or os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
-    kc = int(args.k_cacheable_view, 16) if args.k_cacheable_view \
-        else K_CACHEABLE_VIEW_DEFAULT
+    try:
+        kc = (int(args.k_cacheable_view, 16)
+              if args.k_cacheable_view else K_CACHEABLE_VIEW_DEFAULT)
+    except ValueError:
+        print("ERROR: --k-cacheable-view expects a hexadecimal value, got %r"
+              % args.k_cacheable_view, file=sys.stderr)
+        return 2
 
     if args.macho and args.artifact_dir:
         print("ERROR: --macho and --artifact-dir are mutually exclusive "
@@ -497,8 +502,14 @@ def main(argv=None):
         m = None
 
     if args.symbol:
-        slide = int(args.slide, 16) if args.slide else None
-        pbase = int(args.pongo_base, 16) if args.pongo_base else None
+        try:
+            slide = int(args.slide, 16) if args.slide else None
+            pbase = int(args.pongo_base, 16) if args.pongo_base else None
+        except ValueError:
+            print("ERROR: --slide/--pongo-base expect hexadecimal values, got "
+                  "--slide=%r --pongo-base=%r"
+                  % (args.slide, args.pongo_base), file=sys.stderr)
+            return 2
         r = resolve_symbol(m, args.symbol, slide=slide, pongo_base=pbase)
         if r is None:
             print("ERROR: symbol %s not found in %s"
@@ -519,11 +530,19 @@ def main(argv=None):
             else:
                 print("runtime VA      : UNRESOLVED (need --slide or "
                       "--pongo-base; both are device/runtime data)")
-        rc = 0
+        # A successful symbol resolution must NOT clear an earlier
+        # --verify-source failure: keep whatever non-zero status that set
+        # (rc starts at 0, so this is still 0 when no failure occurred).
 
     if args.buffer_pa or args.buffer_va:
-        bpa = int(args.buffer_pa, 16) if args.buffer_pa else None
-        bva = int(args.buffer_va, 16) if args.buffer_va else None
+        try:
+            bpa = int(args.buffer_pa, 16) if args.buffer_pa else None
+            bva = int(args.buffer_va, 16) if args.buffer_va else None
+        except ValueError:
+            print("ERROR: --buffer-pa/--buffer-va expect hexadecimal values, "
+                  "got --buffer-pa=%r --buffer-va=%r"
+                  % (args.buffer_pa, args.buffer_va), file=sys.stderr)
+            return 2
         r = resolve_buffer(bpa, bva, kcacheable=kc)
         if args.json:
             print(json.dumps(r, indent=2, default=str))
