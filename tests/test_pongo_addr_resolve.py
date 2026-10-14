@@ -254,6 +254,16 @@ class ExitCodeTests(unittest.TestCase):
                        "--slide", "nothex"])
         self.assertEqual(rc, 2)
 
+    def test_malformed_slide_without_symbol_is_usage_error(self):
+        # M-P2.45: --slide must be validated even without --symbol.
+        rc = par.main(["--slide", "nothex"])
+        self.assertEqual(rc, 2)
+
+    def test_malformed_pongo_base_without_symbol_is_usage_error(self):
+        # M-P2.45: --pongo-base must be validated even without --symbol.
+        rc = par.main(["--pongo-base", "nothex"])
+        self.assertEqual(rc, 2)
+
 
 # --------------------------------------------------------------------------
 # Real artifact (parse only; NOT a runtime-address claim)

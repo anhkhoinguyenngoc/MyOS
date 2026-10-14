@@ -501,15 +501,18 @@ def main(argv=None):
     else:
         m = None
 
+    # Validate --slide and --pongo-base early (even without --symbol) so
+    # invalid hex is caught rather than silently ignored.
+    try:
+        slide = int(args.slide, 16) if args.slide else None
+        pbase = int(args.pongo_base, 16) if args.pongo_base else None
+    except ValueError:
+        print("ERROR: --slide/--pongo-base expect hexadecimal values, got "
+              "--slide=%r --pongo-base=%r"
+              % (args.slide, args.pongo_base), file=sys.stderr)
+        return 2
+
     if args.symbol:
-        try:
-            slide = int(args.slide, 16) if args.slide else None
-            pbase = int(args.pongo_base, 16) if args.pongo_base else None
-        except ValueError:
-            print("ERROR: --slide/--pongo-base expect hexadecimal values, got "
-                  "--slide=%r --pongo-base=%r"
-                  % (args.slide, args.pongo_base), file=sys.stderr)
-            return 2
         r = resolve_symbol(m, args.symbol, slide=slide, pongo_base=pbase)
         if r is None:
             print("ERROR: symbol %s not found in %s"
