@@ -234,7 +234,7 @@ __attribute__((noreturn)) void boot_diag_fail(boot_stage_t stage, boot_error_t e
         /* Print numeric code */
         char codebuf[32];
         boot_diag_format_hex32(codebuf, sizeof(codebuf), (uint32_t)error);
-        diag_write_str("  Code: 0x");
+        diag_write_str("  Code: ");
         diag_write_str(codebuf);
         diag_write_str("\n\n");
 
@@ -282,7 +282,7 @@ __attribute__((noreturn)) void boot_diag_panic(boot_stage_t stage, boot_error_t 
 
         char codebuf[32];
         boot_diag_format_hex32(codebuf, sizeof(codebuf), (uint32_t)error);
-        diag_write_str("Code: 0x");
+        diag_write_str("Code: ");
         diag_write_str(codebuf);
         diag_write_str("\n\n");
 
@@ -290,22 +290,22 @@ __attribute__((noreturn)) void boot_diag_panic(boot_stage_t stage, boot_error_t 
         if (diag_state.esr_el1 != 0) {
             char buf[64];
             diag_write_str("\nException Context:\n");
-            diag_write_str("  ESR_EL1: 0x");
+            diag_write_str("  ESR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), diag_state.esr_el1);
             diag_write_str(buf);
             diag_write_str("\n");
 
-            diag_write_str("  FAR_EL1: 0x");
+            diag_write_str("  FAR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), diag_state.far_el1);
             diag_write_str(buf);
             diag_write_str("\n");
 
-            diag_write_str("  ELR_EL1: 0x");
+            diag_write_str("  ELR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), diag_state.elr_el1);
             diag_write_str(buf);
             diag_write_str("\n");
 
-            diag_write_str("  SPSR_EL1: 0x");
+            diag_write_str("  SPSR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), diag_state.spsr_el1);
             diag_write_str(buf);
             diag_write_str("\n");
@@ -437,7 +437,7 @@ __attribute__((noreturn)) void boot_diag_exception_handler(
             char buf[64];
 
             diag_write_str("Exception Context:\n");
-            diag_write_str("  ESR_EL1: 0x");
+            diag_write_str("  ESR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), ctx->esr_el1);
             diag_write_str(buf);
             diag_write_str(" (EC=");
@@ -445,17 +445,17 @@ __attribute__((noreturn)) void boot_diag_exception_handler(
             diag_write_str(buf);
             diag_write_str(")\n");
 
-            diag_write_str("  FAR_EL1: 0x");
+            diag_write_str("  FAR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), ctx->far_el1);
             diag_write_str(buf);
             diag_write_str("\n");
 
-            diag_write_str("  ELR_EL1: 0x");
+            diag_write_str("  ELR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), ctx->elr_el1);
             diag_write_str(buf);
             diag_write_str("\n");
 
-            diag_write_str("  SPSR_EL1: 0x");
+            diag_write_str("  SPSR_EL1: ");
             boot_diag_format_hex64(buf, sizeof(buf), ctx->spsr_el1);
             diag_write_str(buf);
             diag_write_str("\n");
