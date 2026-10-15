@@ -139,10 +139,12 @@ vector_serror_el0_32:
     mrs     x6, ELR_EL1
     mrs     x7, SPSR_EL1
 
-    /* Prepare exception_context_t on stack */
-    /* struct exception_context_t { esr_el1, far_el1, elr_el1, spsr_el1, ... } */
-    stp     x4, x5, [sp, #-16]!     /* esr_el1, far_el1 */
-    stp     x6, x7, [sp, #-16]!     /* elr_el1, spsr_el1 */
+    /* Prepare exception_context_t on stack.
+       The struct starts with ESR/FAR, so store those last/outermost in the
+       two contiguous (lower-address) slots.  The previous ESR,FAR then
+       ELR,SPSR order left C labels reading the wrong words. */
+    stp     x6, x7, [sp, #-16]!     /* elr_el1, spsr_el1 (upper slots) */
+    stp     x4, x5, [sp, #-16]!     /* esr_el1, far_el1 (base slots) */
 
     /* Load boot stage from diagnostic state */
     bl      boot_diag_get_current_stage
