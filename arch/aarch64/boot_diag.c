@@ -481,7 +481,7 @@ __attribute__((noreturn)) void boot_diag_exception_handler(
  * ======================================================================== */
 
 size_t boot_diag_format_hex32(char *buf, size_t bufsz, uint32_t val) {
-    if (bufsz < 9) return 0; /* "0xXXXXXXXX" + null = 11 */
+    if (bufsz < 11) return 0; /* "0xXXXXXXXX" + null = 11 bytes */
 
     const char *hex = "0123456789ABCDEF";
     buf[0] = '0';
@@ -494,7 +494,7 @@ size_t boot_diag_format_hex32(char *buf, size_t bufsz, uint32_t val) {
 }
 
 size_t boot_diag_format_hex64(char *buf, size_t bufsz, uint64_t val) {
-    if (bufsz < 17) return 0; /* "0xXXXXXXXXXXXXXXXX" + null = 19 */
+    if (bufsz < 19) return 0; /* "0xXXXXXXXXXXXXXXXX" + null = 19 bytes */
 
     const char *hex = "0123456789ABCDEF";
     buf[0] = '0';
