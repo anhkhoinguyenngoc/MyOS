@@ -277,11 +277,17 @@ __attribute__((noreturn)) void boot_diag_panic(boot_stage_t stage, boot_error_t 
     /* This is typically called from the exception handler which already
      * has the context in registers. The context is passed separately. */
 
-    diag_state.current_stage = stage;
+    /* Clamp invalid/reserved stages so panic reporting never indexes past
+     * the initialized diagnostic stage table. */
+    boot_stage_t safe_stage =
+        (stage <= BOOT_STAGE_KERNEL_MAIN || stage == BOOT_STAGE_UNKNOWN)
+        ? stage : BOOT_STAGE_UNKNOWN;
+
+    diag_state.current_stage = safe_stage;
     diag_state.last_error = error | DIAG_TYPE_EXCEPTION;
     diag_state.failure_flag = 1;
     diag_state.timestamp = diag_get_timestamp();
-    diag_record_event(DIAG_EVENT_PANIC, stage, error | DIAG_TYPE_EXCEPTION);
+    diag_record_event(DIAG_EVENT_PANIC, safe_stage, error | DIAG_TYPE_EXCEPTION);
 
     if (boot_console) {
         diag_write_str("\n");
@@ -289,7 +295,7 @@ __attribute__((noreturn)) void boot_diag_panic(boot_stage_t stage, boot_error_t 
         diag_write_str("==================\n\n");
 
         diag_write_str("Stage: ");
-        diag_write_str(boot_stage_names[stage]);
+        diag_write_str(boot_stage_names[safe_stage]);
         diag_write_str("\n\n");
 
         /* Print error */
@@ -429,11 +435,17 @@ __attribute__((noreturn)) void boot_diag_exception_handler(
     /* Build error with exception type (used for framebuffer panic) */
     (void)(base_error | DIAG_TYPE_EXCEPTION);
 
-    diag_state.current_stage = stage;
+    /* Clamp invalid/reserved stages so exception reporting can never index
+     * past the initialized stage table. */
+    boot_stage_t safe_stage =
+        (stage <= BOOT_STAGE_KERNEL_MAIN || stage == BOOT_STAGE_UNKNOWN)
+        ? stage : BOOT_STAGE_UNKNOWN;
+
+    diag_state.current_stage = safe_stage;
     diag_state.last_error = base_error | DIAG_TYPE_EXCEPTION;
     diag_state.failure_flag = 1;
     diag_state.timestamp = diag_get_timestamp();
-    diag_record_event(DIAG_EVENT_EXCEPTION, stage, base_error | DIAG_TYPE_EXCEPTION);
+    diag_record_event(DIAG_EVENT_EXCEPTION, safe_stage, base_error | DIAG_TYPE_EXCEPTION);
 
     /* Call panic with exception context */
     if (boot_console) {
@@ -442,7 +454,7 @@ __attribute__((noreturn)) void boot_diag_exception_handler(
         diag_write_str("==========================================\n\n");
 
         diag_write_str("Stage: ");
-        diag_write_str(boot_stage_names[stage]);
+        diag_write_str(boot_stage_names[safe_stage]);
         diag_write_str("\n\n");
 
         char errbuf[128];

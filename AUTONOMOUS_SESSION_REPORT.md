@@ -1,47 +1,31 @@
-# Autonomous Kernel Correctness Session — Invalid-Stage Out-of-Bounds Safety
+# Autonomous Kernel Correctness Session
 
-Session start: 2026-10-15T19:17:00+07:00
-Session end:   2026-10-15T19:24:00+07:00
-Starting commit: 73f21a11b80a9abd1bcbd84158564a91c72afef8
-Final commit: see terminal verified SHA.
+Session start: 2026-10-15T19:24:00+07:00
+Session end: 2026-10-15T19:30:00+07:00
+Starting commit: c392b1d2407215a3afe03c190a3d265cef898193
+Final commit: see verified remote SHA in terminal summary.
 
 ## Issue
-`boot_diag_fail()` in QEMU `arch/aarch64/boot_diag.c` used caller-supplied `stage`
-directly in loops and `boot_stage_names[stage]`. If any caller, fault injection surface,
-or corrupted state supplied an undefined stage, it could index past the initialized
-designated initializer table (`boot_stage_names`), read NULL/all zeros and invoke
-`diag_write_str(NULL)`, producing undefined/crashing behavior on a failure path.
+`boot_diag_fail`, `boot_diag_panic`, and `boot_diag_exception_handler` all used a caller-supplied `stage` without a bounds/in-range check before indexing `boot_stage_names[]`. This is a memory-read defect even though `boot_diag_fail` got a partial guard last session.
 
 ## Source evidence
-```
-for (int i = 0; i <= (int)stage; i++) {
-    ...
-    diag_write_str(boot_stage_names[i]);  // out-of-table index possible
-}
-diag_write_str(boot_stage_names[stage]);   // out-of-table index possible
-```
-`boot_diag_inject_failure` rejected stages only >= BOOT_STAGE_UNKNOWN; `boot_diag_fail`
-had no equivalent guard.
-`boot_stage_names` only defines 0..10 + index 255.
+- `boot_diag_panic`: `diag_write_str(boot_stage_names[stage]);`
+- `boot_diag_exception_handler`: same, plus `diag_record_event(DIAG_EVENT_EXCEPTION, stage...)`.
+- `boot_stage_names` has indices 0..BOOT_STAGE_KERNEL_MAIN plus BOOT_STAGE_UNKNOWN.
+Thus calling any of them with a reserved/out-of-range index could read outside initialized storage and pass NULL to `diag_write_str` -> undefined behavior.
 
-## Reproduction
-Modified `kernel_main` to call `boot_diag_fail(BOOT_STAGE_KERNEL_MAIN + 1, ...)`.
-Before the fix, such invalid stages would index outside initialized table entries.
-After the fix, QEMU printed a stable `MyOS Boot Diagnostic`, and `  Stage: UNKNOWN`,
-with no crash. QEMU remains non-passing by intent because a fail was triggered.
-Evidence files: /tmp/myos-autonomous-session/*.log.
-
-## Fix
-`boot_diag_fail()` clamps invalid (non-zero-undefined-table) stages to
-`BOOT_STAGE_UNKNOWN`, limits reporting loop to 0..10, and only reads defined
-`boot_stage_names[]` cells. No normal boot path semantics changed.
+## Changes
+Clamp invalid/reserved stage to BOOT_STAGE_UNKNOWN in panic and exception handlers before:
+- `diag_state.current_stage` assignment
+- `diag_record_event` (matching previous fail fix)
+- output lookup `boot_stage_names[]`
+All valid behavior is unchanged.
 
 ## Validation
-- `make qemu`: PASS exit=0, `MYOS_KERNEL_PASS` present.
-- `make host-test-all`: PASS, 300 tests.
-- Eight offline: PASS.
-- Integrity 4/4 artifacts; 10/10 pongo build baseline; nested repos unchanged.
-- diff check clean.
+- make qemu PASS (MYOS_KERNEL_PASS)
+- make host-test-all 300 PASS
+- eight offline targets PASS
+- artifact/baseline verified (4/4, 10/10), nested repo unchanged.
 
-## Remaining
-A8 compatibility still UNKNOWN / UNVERIFIED. Add exception-triggered integration test later if desired.
+## Limitations
+Physical iPhone/A8 remains UNKNOWN / UNVERIFIED.
