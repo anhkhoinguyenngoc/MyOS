@@ -111,6 +111,11 @@ def parse_report(blob, offset=0):
             "blob too short for report: need %d bytes at offset 0x%x, have %d"
             % (RPT_SIZE, offset, len(blob) - offset)
         )
+    if len(blob) - offset != RPT_SIZE:
+        raise ValueError(
+            "report must be exactly 0x%x bytes, got %d"
+            % (RPT_SIZE, len(blob) - offset)
+        )
     slot = blob[offset:offset + RPT_SIZE]
 
     if slot[0:8] != MAGIC_TXT:
