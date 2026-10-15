@@ -2,7 +2,7 @@
 
 Date: 2026-10-15
 Starting commit: aff3670f05b5cce275664ebd5275b96aa2bbf0a5
-Final commit:   bf7ca023ef60172c9c514f7cd88a0c93b4b95a3c (verified: git ls-remote origin refs/heads/main == 0600101b920e3099b5b344ae7a12f606328bbecb)
+Final commit: recorded as the remote SHA verified after push (see terminal session summary and /tmp/myos-autonomous-session/remote_sha.txt)
 
 ## Problem found
 The boot diagnostic kernel (arch/aarch64/boot_diag.c) declared and defined `diag_check_injected_failure` and its supporting state unconditionally, while only using them under `MYOS_DIAG_FAULT_INJECTION`. This produced:
