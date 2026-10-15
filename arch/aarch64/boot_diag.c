@@ -169,9 +169,17 @@ void boot_diag_ok(boot_stage_t stage) {
         return;
     }
 
-    /* Verify we're marking the current stage */
+    /* A stage can only be marked successful when it is the one currently
+     * being initialized. Allowing unrelated/out-of-order acks would let a
+     * later stage claim an earlier failure state was clean. */
     if (diag_state.current_stage != stage) {
-        /* Stage mismatch - log but continue */
+        if (boot_console) {
+            diag_write_str("WARN: boot_diag_ok for ");
+            diag_write_str(boot_stage_names[stage]);
+            diag_write_str(" is ignored (current stage mismatch)\n");
+            diag_flush();
+        }
+        return;
     }
 
     diag_state.last_ok_stage = stage;
