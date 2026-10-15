@@ -404,6 +404,8 @@ class PongoClient:
 #   0x000000000: 4d 50 31 50 52 42 30 31 01 00 00 00 60 00 00 00
 # ---------------------------------------------------------------------------
 _HEX_BYTE = re.compile(r"^(?:0x)?[0-9a-fA-F]{2}$")
+# ANSI escape sequences (e.g., color codes around prompt or data)
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def parse_hexdump(text):
@@ -412,9 +414,16 @@ def parse_hexdump(text):
     Handles the exact device framing (`0x%09llx: ` row prefix + `%02x `
     octets; padding cells are three spaces).  The row address is ignored.
     Accepts str or bytes (stdout arrives as bytes from the transport).
+
+    Strips ANSI escape sequences globally before parsing so that color
+    codes attached to hex octets (e.g., '50\x1b[0m') do not cause the
+    octet to be silently dropped.
     """
     if isinstance(text, (bytes, bytearray)):
         text = bytes(text).decode("ascii", "replace")
+    # Strip ANSI escape sequences globally (they may appear anywhere,
+    # including attached to valid hex octets).
+    text = _ANSI_RE.sub("", text)
     out = bytearray()
     for raw in text.splitlines():
         line = raw.strip()
