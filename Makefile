@@ -273,8 +273,10 @@ QEMU_TIMEOUT := 10
 
 qemu: kernel
 	@echo "=== Booting MyOS kernel on QEMU virt ==="
-	@timeout $(QEMU_TIMEOUT) $(QEMU) $(QEMU_FLAGS) 2>&1 | tee /tmp/qemu_output.log; \
+	@rm -f /tmp/qemu_output.log; \
+	timeout $(QEMU_TIMEOUT) $(QEMU) $(QEMU_FLAGS) > /tmp/qemu_output.log 2>&1; \
 	EXIT_CODE=$$?; \
+	cat /tmp/qemu_output.log; \
 	if [ $$EXIT_CODE -eq 124 ]; then \
 		echo "QEMU timed out after $(QEMU_TIMEOUT)s (kernel may be running)"; \
 	elif [ $$EXIT_CODE -eq 0 ]; then \
