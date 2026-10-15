@@ -131,8 +131,11 @@ void boot_diag_init(void) {
     diag_state.event_count = 0;
 }
 
-/* Forward declaration for fault injection helper */
+/* Forward declaration for fault injection helper (only compiled with
+   injector support; kept aligned with the #ifdef guarded definition). */
+#ifdef MYOS_DIAG_FAULT_INJECTION
 static int diag_check_injected_failure(boot_stage_t stage, boot_error_t *out_error);
+#endif
 
 int boot_diag_begin(boot_stage_t stage) {
 #ifdef MYOS_DIAG_FAULT_INJECTION
@@ -585,6 +588,8 @@ void boot_diag_clear_events(void) {
  * FAULT INJECTION (TEST ONLY)
  * ======================================================================== */
 
+#ifdef MYOS_DIAG_FAULT_INJECTION
+
 /* Maximum number of injectable failures */
 #define DIAG_MAX_INJECTED_FAILURES 8
 
@@ -597,7 +602,10 @@ typedef struct {
 static diag_injected_failure_t injected_failures[DIAG_MAX_INJECTED_FAILURES];
 static uint32_t injected_failure_count = 0;
 
+#endif /* MYOS_DIAG_FAULT_INJECTION */
+
 /* Check if a failure is injected for the given stage (always available) */
+#ifdef MYOS_DIAG_FAULT_INJECTION
 static int diag_check_injected_failure(boot_stage_t stage, boot_error_t *out_error) {
     for (uint32_t i = 0; i < injected_failure_count; i++) {
         if (injected_failures[i].armed && injected_failures[i].stage == stage) {
@@ -608,6 +616,7 @@ static int diag_check_injected_failure(boot_stage_t stage, boot_error_t *out_err
     }
     return 0;
 }
+#endif /* MYOS_DIAG_FAULT_INJECTION */
 
 #ifdef MYOS_DIAG_FAULT_INJECTION
 
