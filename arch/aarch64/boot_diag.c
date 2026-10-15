@@ -202,11 +202,20 @@ void boot_diag_ok(boot_stage_t stage) {
 }
 
 __attribute__((noreturn)) void boot_diag_fail(boot_stage_t stage, boot_error_t error) {
-    diag_state.current_stage = stage;
+    /* Only statically defined stages may reach diagnostic lookup tables.
+     * Out-of-table stages must never drive array indexing. */
+    boot_stage_t safe_stage;
+    if (stage <= BOOT_STAGE_KERNEL_MAIN || stage == BOOT_STAGE_UNKNOWN) {
+        safe_stage = stage;
+    } else {
+        safe_stage = BOOT_STAGE_UNKNOWN;
+    }
+
+    diag_state.current_stage = safe_stage;
     diag_state.last_error = error;
     diag_state.failure_flag = 1;
     diag_state.timestamp = diag_get_timestamp();
-    diag_record_event(DIAG_EVENT_STAGE_FAIL, stage, error);
+    diag_record_event(DIAG_EVENT_STAGE_FAIL, safe_stage, error);
 
     /* Print failure */
     if (boot_console) {
@@ -214,11 +223,13 @@ __attribute__((noreturn)) void boot_diag_fail(boot_stage_t stage, boot_error_t e
         diag_write_str("MyOS Boot Diagnostic\n");
         diag_write_str("====================\n\n");
 
-        /* Print all stages up to current */
-        for (int i = 0; i <= (int)stage; i++) {
+        /* Print all known, in-range stages. Use the clamped stage for the
+         * failing slot so unknown/reserved values cannot read past the
+         * designated initializer table. */
+        for (int i = 0; i <= (int)safe_stage && i <= BOOT_STAGE_KERNEL_MAIN; i++) {
             if (i <= (int)diag_state.last_ok_stage) {
                 diag_write_str("[ OK ] ");
-            } else if (i == (int)stage) {
+            } else if (i == (int)safe_stage) {
                 diag_write_str("[FAIL] ");
             } else {
                 diag_write_str("[....] ");
@@ -229,7 +240,7 @@ __attribute__((noreturn)) void boot_diag_fail(boot_stage_t stage, boot_error_t e
 
         diag_write_str("\nFailure:\n");
         diag_write_str("  Stage: ");
-        diag_write_str(boot_stage_names[stage]);
+        diag_write_str(boot_stage_names[safe_stage]);
         diag_write_str("\n");
 
         /* Print error details */

@@ -1,47 +1,47 @@
-# Autonomous Kernel Correctness Session — Stage-Ack Invariant
+# Autonomous Kernel Correctness Session — Invalid-Stage Out-of-Bounds Safety
 
-Session start: 2026-10-15T19:04:48+07:00
-Session end:   2026-10-15T19:17:05+07:00
-Starting commit: e5b747e7b2bf54cc4f94aed0259f1f17ee14728e
-Final commit: see independently verified remote SHA in terminal summary.
+Session start: 2026-10-15T19:17:00+07:00
+Session end:   2026-10-15T19:24:00+07:00
+Starting commit: 73f21a11b80a9abd1bcbd84158564a91c72afef8
+Final commit: see terminal verified SHA.
 
-## Issue found
-`boot_diag_ok()` in `arch/aarch64/boot_diag.c` accepted an OK for any stage regardless
-whether `diag_state.current_stage` matched it. A call for a stage not currently being
-begun (e.g. typo / driver ordering bug) would claim an earlier failure clean, distorting
-diagnostics and stateful recovery.
+## Issue
+`boot_diag_fail()` in QEMU `arch/aarch64/boot_diag.c` used caller-supplied `stage`
+directly in loops and `boot_stage_names[stage]`. If any caller, fault injection surface,
+or corrupted state supplied an undefined stage, it could index past the initialized
+designated initializer table (`boot_stage_names`), read NULL/all zeros and invoke
+`diag_write_str(NULL)`, producing undefined/crashing behavior on a failure path.
 
 ## Source evidence
-Function previously:
 ```
-if (diag_state.current_stage != stage) {
-    /* Stage mismatch - log but continue */
+for (int i = 0; i <= (int)stage; i++) {
+    ...
+    diag_write_str(boot_stage_names[i]);  // out-of-table index possible
 }
-diag_state.last_ok_stage = stage;
+diag_write_str(boot_stage_names[stage]);   // out-of-table index possible
 ```
-Thus no rejection or telemetry effectively.
+`boot_diag_inject_failure` rejected stages only >= BOOT_STAGE_UNKNOWN; `boot_diag_fail`
+had no equivalent guard.
+`boot_stage_names` only defines 0..10 + index 255.
 
 ## Reproduction
-Temporarily invoked `boot_diag_ok(BOOT_STAGE_CPU_INIT)` at entry to `kernel_main`,
-when the diagnostic current stage was not CPU_INIT. Before patch, QEMU boot report
-marked `CPU_INIT [OK]` despite no corresponding benign begin/normal CPU initialization sequence.
-After patch, QEMU printed:
-`WARN: boot_diag_ok for CPU_INIT is ignored (current stage mismatch)`
-and `CPU_INIT` was not marked `[OK]`.
-Log evidence saved under `/tmp/myos-autonomous-session/before.log` and
-`/tmp/myos-autonomous-session/after2.log`.
+Modified `kernel_main` to call `boot_diag_fail(BOOT_STAGE_KERNEL_MAIN + 1, ...)`.
+Before the fix, such invalid stages would index outside initialized table entries.
+After the fix, QEMU printed a stable `MyOS Boot Diagnostic`, and `  Stage: UNKNOWN`,
+with no crash. QEMU remains non-passing by intent because a fail was triggered.
+Evidence files: /tmp/myos-autonomous-session/*.log.
 
 ## Fix
-`boot_diag_ok()` now returns without changing state when `current_stage != stage`.
-It emits a warning so the caller can identify the ordering bug early. Valid stages still
-advance as before.
+`boot_diag_fail()` clamps invalid (non-zero-undefined-table) stages to
+`BOOT_STAGE_UNKNOWN`, limits reporting loop to 0..10, and only reads defined
+`boot_stage_names[]` cells. No normal boot path semantics changed.
 
 ## Validation
-- `make qemu`: PASS (exit=0), serial contains MYOS_KERNEL_PASS.
-- `make host-test-all`: PASS 300 tests.
-- eight offline targets: PASS.
-- integrity: 4 artifacts PASS, 10/10 pongo build baseline, nested repo unchanged.
+- `make qemu`: PASS exit=0, `MYOS_KERNEL_PASS` present.
+- `make host-test-all`: PASS, 300 tests.
+- Eight offline: PASS.
+- Integrity 4/4 artifacts; 10/10 pongo build baseline; nested repos unchanged.
+- diff check clean.
 
-## Notes
-A8 physical compatibility remains UNKNOWN / UNVERIFIED.
-No sudo, no firmware rebuild, no device access.
+## Remaining
+A8 compatibility still UNKNOWN / UNVERIFIED. Add exception-triggered integration test later if desired.
