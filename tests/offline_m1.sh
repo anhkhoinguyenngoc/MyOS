@@ -4,6 +4,7 @@
 # marker presence, cross-file constant consistency, deterministic rebuild.
 # Exit 0 = all checks pass. Any failure prints FAIL_<name>.
 set -u
+set -o pipefail
 cd "$(dirname "$0")/.."
 
 X=aarch64-linux-gnu-

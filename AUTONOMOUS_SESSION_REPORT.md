@@ -1,53 +1,49 @@
-# Autonomous QEMU Test-Runner Correctness Review
+# Autonomous Test-Trustworthiness and Test-Count Audit
 
-Session start: 2026-10-15T21:59:11+07:00
-Starting commit: 8740e64f711bb0233c49c848404246c11f94ca15
+Session start: 2026-10-15T22:20:00+07:00
+Starting commit: 79cb12d1937a0799efe8f96d8a2d25d035a268a3
 Branch: main
 Remote: https://github.com/anhkhoinguyenngoc/MyOS.git
 
-## Selected problem
-The `make qemu` recipe captured its pipeline through `tee` and then read `$?`,
-which reports `tee`'s exit status rather than the QEMU process status. In
-practice, an unavailable or failing QEMU invocation could be masked, allowing
-the marker grep logic to become the only substantive check.
+## Finding: 305 versus 21 host-test discrepancy
+`make host-test-all` discovers files by the shell glob `tests/test_*.py`.
+It is not invoking one file or skipping files:
+- Exactly 21 test files matched the glob.
+- The runner executes every matching file and propagates each process exit status.
+- The earlier "305 tests" was not the same metric: it counted individual Python `unittest` test methods discovered dynamically (currently 300 methods) plus custom assertion groups in the non-unittest files.
+- The runner's displayed `PASS tests/...` lines measure files, not individual test methods.
+Therefore the decrease represents a different unit of measurement, not a silent loss of test discovery.
 
-## Evidence
-- Original Makefile recipe used:
-  `timeout ... 2>&1 | tee /tmp/qemu_output.log; EXIT_CODE=$$?;`
-- On a POSIX shell, `$?` after a pipeline refers to the last pipeline stage.
-- No source mutation or protected artifact change was needed to validate the fix.
+## Defect corrected
+`tests/offline_m1.sh` ran under `set -u` only. It contained shell pipelines such as:
+
+- `${X}readelf ... | grep -q`
+- `${X}nm -u ... | wc -l`
+- `strings ... | grep ... | tr ...`
+
+Without `set -o pipefail`, command substitution and conditional results can reflect only the last downstream command's status, allowing an upstream failure to be masked. The script now uses `set -u` plus `set -o pipefail`.
+
+The QEMU target continued to use direct redirection and marker validation from the prior fix. Actual QEMU execution returned status 124 and was reported as `QEMU TEST: PASS` only because `MYOS_KERNEL_PASS` was present; a missing marker or nonzero normal exit is not accepted.
 
 ## Changes
-- Modified Makefile `qemu:` target to run QEMU with a direct file redirect:
-  `timeout ... > /tmp/qemu_output.log 2>&1; EXIT_CODE=$$?; cat ...`
-- Added `tests/test_qemu_test_runner.py`, an offline regression test that
-  verifies the Makefile captures QEMU status and parses via `make -n qemu`.
-- Retained the pre-existing untracked exception-path test
-  `tests/test_boot_diag_exception_return.py` as part of the regression set.
+- `tests/offline_m1.sh`: added `set -o pipefail`.
+- `tests/test_offline_pipeline.py`: added offline regression test verifying pipefail in all three shell scripts and valid Bash syntax.
+- Documentation/report updated.
 
-## Results
-- Focused tests:
-  - `python3 tests/test_qemu_test_runner.py`: PASS
-  - `make qemu`: PASS (`MYOS_KERNEL_PASS`)
-  - QEMU terminated on signal 15 with exit status 124 and was correctly reported.
-- Full host suite: PASS (`make host-test-all`: 21 tests, 0 failures).
-- Eight offline targets: PASS (report-readback, probe-report, pongo-client,
-  probe-selfreport, pongo-addr, pongo-artifact, regs-output, m2-check).
+## Verification
+- `make offline`: ALL_PASS.
+- `make host-test-all`: PASS, 21 test files, 0 failures, exit status 0.
+- `make qemu`: PASS, `MYOS_KERNEL_PASS`, nonzero QEMU status reported.
+- `python3 tests/test_offline_pipeline.py`: PASS.
 - `git diff --check`: PASS.
 
-## Evidence types
-- Static source and Makefile structural inspection.
-- Linked/binary inspection unchanged from the prior session.
-- Actual QEMU runtime execution confirmed `MYOS_KERNEL_PASS`.
-- Host-side shell validation for the build target through `make -n`.
-
-## Scope and integrity
-- No protected artifacts, probe outputs, or pongoos-src sources were modified.
-- Four protected artifacts verified against recorded size and SHA-256.
-- `pongoos-src` remained clean and one commit ahead of origin/master.
-- Ten protected build-tree files retained their recorded baseline.
+## Protected scope
+- Four protected artifacts verified against recorded sizes and hashes.
+- Ten-file `pongoos-src/build` baseline retained.
+- `pongoos-src` Git state unchanged and ahead of origin/master by one commit.
+- No protected files were modified.
 
 ## Remaining limitations
-- The local untracked exception-path test was committed but did not add new QEMU faults.
-- Physical Apple A8 compatibility remains UNKNOWN / UNVERIFIED.
+- The test count still reports files, not individual Python test methods.
+- Physical iPhone 6/A8 compatibility remains UNKNOWN / UNVERIFIED.
 EOF
