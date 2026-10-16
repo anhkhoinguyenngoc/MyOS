@@ -18,6 +18,9 @@ int uart_pl011_init(struct boot_console *console);
 /* Kernel main - called from start.S after early init */
 void kernel_main(void)
 {
+    /* Print "Hello, World!" to UART early in boot */
+    diag_puts("Hello, World!\n");
+
     /* KERNEL_MAIN stage - we are here! */
     boot_diag_begin(BOOT_STAGE_KERNEL_MAIN);
 

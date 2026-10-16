@@ -570,13 +570,16 @@ size_t boot_diag_format_error(char *buf, size_t bufsz, boot_error_t error) {
     }
     if (len < bufsz - 1) buf[len++] = '.';
 
-    /* Code as hex */
+    /* Code as hex — extract only the actual code bits (bits 3-0 = error & 0xF).
+       Note: (error >> 4) & 0xF overlaps with the TYPE field which is already
+       displayed in the "TYPE" position of the "SUBSYSTEM.TYPE.CODE" format,
+       so the middle digit is set to 0 to avoid double-reporting the type. */
     if (len < bufsz - 4) {
         buf[len++] = '0';
         buf[len++] = 'x';
         const char *hex = "0123456789ABCDEF";
         buf[len++] = hex[(error >> 8) & 0xF];
-        buf[len++] = hex[(error >> 4) & 0xF];
+        buf[len++] = hex[0];                        /* code mid — 0 to avoid type overlap */
         buf[len++] = hex[error & 0xF];
     }
 
