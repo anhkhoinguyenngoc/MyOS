@@ -145,6 +145,35 @@ def main():
     check("CLI missing file exit 3", p.returncode == 3,
           "rc=%d" % p.returncode)
 
+    # Non-UTF-8 lsusb output (device-controlled descriptor bytes) must not
+    # crash the classifier: fake `lsusb` emitting invalid bytes plus a valid
+    # DFU line must still classify DFU (review finding M-P3.0.2).
+    import stat as _stat
+    import tempfile as _tempfile
+    fake_dir = _tempfile.mkdtemp(prefix="myos-fakelsusb-")
+    try:
+        fake_lsusb = os.path.join(fake_dir, "lsusb")
+        with open(fake_lsusb, "wb") as fh:
+            fh.write(b"#!/bin/sh\nprintf '\\377\\376\\001"
+                     b"Bus 002 Device 010: ID 05ac:1227 X\\n'\n")
+        os.chmod(fake_lsusb, 0o755 | _stat.S_IXUSR)
+        env = dict(os.environ)
+        env["PATH"] = fake_dir + os.pathsep + env.get("PATH", "")
+        p = subprocess.run([sys.executable, DETECTOR],
+                           capture_output=True, text=True, env=env)
+        check("non-UTF8 lsusb no traceback", "Traceback" not in p.stderr,
+              p.stderr[:200])
+        check("non-UTF8 lsusb still DFU exit 0", p.returncode == 0,
+              "rc=%d out=%s err=%s" % (p.returncode, p.stdout, p.stderr[:200]))
+        check("non-UTF8 lsusb verdict DFU", "USB_VERDICT=DFU" in p.stdout,
+              p.stdout)
+    finally:
+        try:
+            os.unlink(os.path.join(fake_dir, "lsusb"))
+            os.rmdir(fake_dir)
+        except OSError:
+            pass
+
     # Read-only audit: the tool's only subprocess invocation is ["lsusb"];
     # no os.write/ioctl/open-for-write/mode-switch strings exist.
     with open(DETECTOR, "r") as fh:

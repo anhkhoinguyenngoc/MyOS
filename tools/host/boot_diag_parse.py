@@ -326,7 +326,10 @@ def main(argv=None):
 
     try:
         if args.logfile == "-":
-            text = sys.stdin.read()
+            # Read stdin as bytes: piped UART captures may contain
+            # non-UTF-8 bytes, which must not crash the parser (nor
+            # collide with the FAILURE exit code via traceback exit 1).
+            text = sys.stdin.buffer.read().decode("utf-8", errors="replace")
         else:
             with open(args.logfile, "r", errors="replace") as fh:
                 text = fh.read()

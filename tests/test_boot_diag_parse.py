@@ -234,6 +234,19 @@ def main():
     check("CLI incomplete exit 2", rc == 2, "rc=%d" % rc)
     check("CLI incomplete verdict line", "DIAG_VERDICT=INCOMPLETE" in out)
 
+    # Binary bytes on stdin (piped captures may carry non-UTF-8 UART bytes)
+    # must decode with replacement, never crash: INCOMPLETE, no traceback
+    # (review finding M-P3.0.2; a traceback exit 1 would mimic FAILURE).
+    p = subprocess.run([sys.executable, PARSER, "--source", "qemu", "-"],
+                       input=b"\x00\x01\xff\xfeMYOS",
+                       capture_output=True)
+    check("stdin binary no traceback", b"Traceback" not in p.stderr,
+          p.stderr[:200].decode("utf-8", "replace"))
+    check("stdin binary exit 2 INCOMPLETE", p.returncode == 2,
+          "rc=%d" % p.returncode)
+    check("stdin binary verdict line",
+          b"DIAG_VERDICT=INCOMPLETE" in p.stdout, p.stdout)
+
     # 13. Upstream single-0x format (post-ffbf25d: "Code: 0x..." /
     #     "ESR_EL1: 0x...") parses identically to local double-0x form.
     #     Forward-compatibility lock for the pending upstream sync.

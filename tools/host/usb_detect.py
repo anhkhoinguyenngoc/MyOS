@@ -140,10 +140,15 @@ def human_lines(result):
 
 
 def run_lsusb():
-    """Execute `lsusb` read-only. Returns (returncode, stdout, stderr)."""
+    """Execute `lsusb` read-only. Returns (returncode, stdout, stderr).
+
+    Decodes with errors="replace": USB descriptors are device-controlled
+    bytes and may not be valid UTF-8; a decode failure must never crash
+    the classifier (nor collide with the ABSENT exit code).
+    """
     try:
         proc = subprocess.run(["lsusb"], capture_output=True, text=True,
-                              timeout=30)
+                              errors="replace", timeout=30)
     except FileNotFoundError:
         return 127, "", "lsusb not found"
     except (OSError, subprocess.SubprocessError) as exc:
