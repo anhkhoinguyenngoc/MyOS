@@ -23,7 +23,7 @@ screen using MyOS.**
 | ARM64 kernel code | `kernel/`, `arch/aarch64/` | built and exercised on QEMU virt |
 | QEMU virt platform | `platform/qemu-virt/` | the only implemented platform |
 | Apple A8 platform | `platform/apple/a8/` | contract/spec only — **UNSUPPORTED** as a boot target |
-| Host validation tools + tests | `tools/host/`, `tests/` | run offline on the host; 34 test files |
+| Host validation tools + tests | `tools/host/`, `tests/` | run offline on the host; 36 test files |
 | PongoOS + protected artifacts | `pongoos-src/` (gitignored), `artifacts/` (gitignored) | external boot chain; never modified |
 
 Validation-boundary rules (state these whenever reporting progress):
@@ -54,55 +54,106 @@ Evidence from the audit session; re-verify before relying on any of it.
   measured **24** of the 35 non-build prerequisites (report off-by-one;
   substance confirmed) — all of `kernel/boot_diag.*`, `kernel/console.*`,
   most of `platform/**`, `tests/a8_runtime/*`, and `tools/host/m1_proto.h`.
-  This is why the refactor cannot yet be reproduced from a clean checkout.
+  This is why the refactor could not yet be reproduced from a clean checkout.
+  *(Superseded by M7.34: all of those inputs are now committed in the
+  refactor commit, and a clean clone builds `raw_entry.bin` byte-identical.)*
 - QEMU boot and runtime-exception validation were **not re-run** during
   M7.31 (those targets would overwrite existing evidence).
-- **Clean-checkout reproducibility: UNPROVEN** until a fresh checkout can be
-  built and validated.
+- **Clean-checkout reproducibility: UNPROVEN** as of M7.31 — measured in
+  M7.34 (see below): build path proven, full suite still needs the
+  gitignored `pongoos-src/` inputs.
 
-Never claim (no evidence exists): that the refactor is committed, that a
-clean checkout has passed, or that `Hello User` (or anything) has appeared
-on an iPhone screen.
+Never claim (no evidence exists): that the full test suite passes from a
+clean checkout without its gitignored local inputs, or that `Hello User`
+(or anything) has appeared on an iPhone screen. *(Superseded: "the
+refactor is committed" is now TRUE — it landed as `6aecf03` in M7.34.)*
 
-## Worktree / Git snapshot (M7.32, 2026-10-21)
+## Verified state — M7.34 reconciliation (2026-10-21)
 
-- Base HEAD at this M7.32 update: `ffbf25d55ba3b3f584f3ef05242334cc79acabfe`
-  (this file lands as its own dedicated commit on top of it, before any
-  refactor commit).
-- Refactor footprint in the working tree (excluding this file): **19
-  modified + 10 deleted + 51 untracked = 80 entries, 0 staged** — the
-  entire platform-tree refactor, still uncommitted.
-- The refactor is planned as **one dedicated, reviewed commit of 79 paths**
-  (18 modified + 10 deleted + 51 untracked; `AUTONOMOUS_SESSION_REPORT.md`
-  deliberately excluded — append-only history with M7.29-documented stale
-  counts). Note: `AUTONOMOUS_SESSION_REPORT.md` currently ends at **M7.23**;
-  later milestone reports (M7.24–M7.31) exist only in session transcripts —
-  this file is the in-repo bridge for those results.
-- **Remote divergence (found M7.32):** the server-side `origin/main` is
-  ahead of the local branch (push dry-run rejected non-fast-forward).
-  Reconciling (fetch/pull/rebase — user decision) is required before any
-  push of the refactor work. No fetch/pull was performed.
+Evidence captured in the M7.34 session; re-verify before relying on any of it.
 
-## Outstanding refactor blockers (from M7.31)
+- **Commits created:** `6aecf0360097368c330b7f18dc306fca88e4c45f`
+  (refactor, parent `0cca6c3`, 80 paths =
+  41 new + 19 modified + 10 renames, 9664+/259−) and
+  `b5f7db35820dab94b919cabe7b8cba35d071e974` (merge,
+  parents `6aecf03` + `2b5cc79`). Pre-commit gates: `git diff --check`
+  clean (after removing 5 trailing-whitespace lines in the new decoder
+  test + a blank line at EOF in `uart_pl011.S`), `host-test-all` 34/34.
+- **Divergence RESOLVED.** `git ls-remote origin refs/heads/main` pinned
+  the server at `2b5cc7986761ec81ebe8b4279bd07c3d0a96726e` (unchanged
+  since M7.33); ordinary fetch + non-rewriting merge integrated it; local
+  is now strictly ahead (fast-forward push possible, no force).
+- **Makefile gate (M7.33's predicted silent-drop did NOT occur):** the
+  real merge raised an explicit conflict in `Makefile`. Resolved keeping
+  BOTH sides: ours byte-preserved + theirs `+25/−0` (restoring the shared
+  `# ===` separator the matcher consumed as context). Verified against
+  both parents: `diag-parse-test:` (L488), `usb-detect-test:` (L499),
+  `.PHONY` (L504); recipes propagate exit codes; conflict evidence kept
+  in `/tmp/opencode/m734/`.
+- **Tests after merge:** `make host-test-all` **PASS — 36/36** (0 fail,
+  0 skip; wildcard discovery picks up the two PR #1 tests);
+  `make diag-parse-test` PASS; `make usb-detect-test` PASS;
+  `make integrity-check` PASS (95 PASS lines, 67/67 section, 0 fail);
+  `make raw-entry-check` PASS (artifact hash stayed `0eb3af05…8c635`);
+  `py_compile` 6 files OK; `bash -n` both changed shell scripts OK.
+- **Clean-checkout audit (local clone, new in M7.34):** `make raw-entry`
+  from a pristine clone **reproduces `build/raw_entry.bin`
+  byte-identical** (`0eb3af057a6ba82ad55c114d0a0056c1d3cea686375f535c813ba25b2cd8c635`);
+  the two M-P3.0 targets pass clean; `host-test-all` clean = **29/36**
+  (7 files fail solely on missing gitignored `pongoos-src/` sources, 13
+  skips are graceful absences). QEMU was NOT run (evidence-protection
+  rule), so clean-checkout *boot* validation remains untested.
+- **Preservation:** all 5 protected artifact hashes byte-identical to the
+  M7.34 baseline; `pongoos-src` clean at `cb83dd83`; report file untouched;
+  no `git gc`, reset, clean, stash, or force-push anywhere.
 
-1. `README.md` lines 14–15 ("Repository State" notice, pins `ffbf25d5…`)
-   become stale/self-contradictory the moment the refactor commit lands —
-   revise within that commit.
-2. `BOOT_DIAGNOSTICS.md` lines 128 and 254 reference files the refactor
-   deletes (`arch/aarch64/boot_diag.c`, `boot/aarch64/m1_entry.S`) —
-   fix in the same commit or an immediate follow-up.
-3. The refactor still requires: user-reviewed dedicated commit →
-   clean-checkout build + test validation → only then may reproducibility
-   be claimed.
+
+## Git snapshot (M7.34, 2026-10-21)
+
+- Chain: `ffbf25d5` ← `0cca6c3` (first commit of this file) ← `6aecf03`
+  (refactor, 80 paths) ← `b5f7db3` (merge of `origin/main` = `2b5cc79`,
+  PR #1) ← this M7.34 context update.
+- Working tree: only `AUTONOMOUS_SESSION_REPORT.md` modified (append-only,
+  deliberately never committed; it ends at **M7.23**; M7.24–M7.34 exist
+  only in session transcripts — this file is the in-repo bridge).
+- **Remote divergence: RESOLVED in M7.34** (see Verified state above);
+  local is strictly ahead of `origin/main` = `2b5cc79`; normal push only,
+  never force.
+
+## Blockers resolved in M7.34; current follow-ups
+
+Resolved (proof in Verified state above):
+
+1. `README.md` Repository State notice — rewritten for a committed tree
+   inside the refactor commit (`6aecf03`).
+2. `BOOT_DIAGNOSTICS.md` stale paths (old lines 128/254) — fixed inside
+   `6aecf03` (`kernel/boot_diag.c`, `platform/apple/a8/m1_entry.S`);
+   verified those were the file's only stale references.
+3. Refactor committed and reconciled; clean-clone build reproduces
+   `build/raw_entry.bin` byte-identical.
+
+Follow-ups (none blocking):
+
+- `ARCHITECTURE.md` (tracked, unchanged by the refactor) still references
+  pre-refactor paths (`boot/aarch64/*`) — refresh in a future doc commit.
+  Historical milestone reports (`M2_A*`, `M_P2_*`, `M1_*`) intentionally
+  untouched: they describe their time of writing.
+- **After any future pull: audit `Makefile` for dropped targets** (M7.34
+  lesson — a 2-way `merge-file` simulation had predicted a silent drop
+  where the real merge instead conflicted; either way the targets are the
+  at-risk content: `diag-parse-test`, `usb-detect-test`).
+- Full-suite clean-checkout pass requires the gitignored `pongoos-src/`
+  tree (7 test files depend on it) — an inherent local-input dependency,
+  not a code defect.
 
 ## Roadmap (evidence-gated; mark complete only with proof)
 
 1. **In progress** — Complete, reviewable source tree + reproducible
-   host/QEMU validation workflow. *(M7.31 audit complete; commit and
-   clean-checkout validation pending.)*
-2. **In progress** — Finish the platform-tree refactor with explicit file
-   inventory and integrity checks. *(Inventory + checks done in M7.31;
-   commit pending.)*
+   host/QEMU validation workflow. *(M7.34: committed, reconciled, clean
+   build proven byte-identical; QEMU boot not re-run — evidence rule.)*
+2. **Complete (M7.34)** — Finish the platform-tree refactor with explicit
+   file inventory and integrity checks. *(Landed as `6aecf03`: 80 paths,
+   `host-test-all` 36/36, integrity 95 PASS.)*
 3. **Not started** — Investigate the actual Apple A8 boot and handoff
    requirements (PongoOS `bootr`, memory map, EL state).
 4. **Not started** — Establish a viable display initialization path for
@@ -136,13 +187,12 @@ The roadmap is a plan, not evidence that any stage works.
 
 ## Next concrete task
 
-1. User decision: reconcile the `origin/main` divergence (local is behind
-   the server), since no fetch/pull/rebase is allowed inside agent tasks
-   unless explicitly authorized.
-2. Resolve blockers 1–2, then commit the refactor as one reviewed commit
-   (79 paths: all modified/deleted/untracked files except
-   `AUTONOMOUS_SESSION_REPORT.md`; path lists are derivable from
-   `git status`), followed by clean-checkout build + test validation.
-3. With a reproducible baseline established, move to roadmap 3–4
-   (A8 boot/handoff investigation → display init path), driving toward the
-   primary milestone: **`Hello User` on the physical iPhone 6**.
+1. Confirm the M7.34 push landed (`git status` shows `main` at 0 ahead of
+   `origin/main`, or `git ls-remote origin refs/heads/main` equals local
+   HEAD). If still ahead, push normally — fast-forward only, never force.
+2. Health gate for any future session: `make host-test-all` (36/36
+   expected); after any `git pull`, run the Makefile target audit noted
+   under Follow-ups before trusting the tree.
+3. With the baseline established, move to roadmap 3–4 (A8 boot/handoff
+   investigation → display init path), driving toward the primary
+   milestone: **`Hello User` on the physical iPhone 6**.
