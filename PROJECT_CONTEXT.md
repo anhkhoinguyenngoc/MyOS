@@ -22,8 +22,8 @@ screen using MyOS.**
 |---|---|---|
 | ARM64 kernel code | `kernel/`, `arch/aarch64/` | built and exercised on QEMU virt |
 | QEMU virt platform | `platform/qemu-virt/` | the only implemented platform |
-| Apple A8 platform | `platform/apple/a8/` | contract/spec only — **UNSUPPORTED** as a boot target |
-| Host validation tools + tests | `tools/host/`, `tests/` | run offline on the host; 36 test files |
+| Apple A8 platform | `platform/apple/a8/` | renderer + inherited-framebuffer adapter exist as a default-off opt-in image; physical boot/display **UNVERIFIED**, still **UNSUPPORTED** as a boot target |
+| Host validation tools + tests | `tools/host/`, `tests/` | run offline on the host; 41 test files |
 | PongoOS + protected artifacts | `pongoos-src/` (gitignored), `artifacts/` (gitignored) | external boot chain; never modified |
 
 Validation-boundary rules (state these whenever reporting progress):
@@ -36,6 +36,10 @@ Validation-boundary rules (state these whenever reporting progress):
   artifact contract compliance and byte-deterministic rebuild only.
 - **Physical boot/display: UNVERIFIED. Apple A8: UNSUPPORTED. Physical-test
   readiness: NO-GO.**
+- **M7.38 physical validation: BLOCKED / NOT VERIFIED.** The repository's
+  mandatory safety contract prohibits physical-device, USB/DFU, exploit,
+  flashing, and hardware-probing operations. No device interaction or upload
+  occurred.
 
 ## Verified state — M7.31 pre-commit audit (2026-10-21, HISTORICAL)
 
@@ -107,8 +111,65 @@ Evidence captured in the M7.34 session; re-verify before relying on any of it.
   M7.34 baseline; `pongoos-src` clean at `cb83dd83`; report file untouched;
   no `git gc`, reset, clean, stash, or force-push anywhere.
 
+## Verified state — M7.38 (2026-10-21)
 
-## Git snapshot (M7.34, 2026-10-21)
+M7.38 was a physical-display validation mission. The software validation
+phase completed; the physical phase was **BLOCKED by project policy before any
+device interaction** and must not be described as a hardware failure.
+
+- **Physical: BLOCKED / NOT VERIFIED.** `README.md:49-54` and
+  `AUTONOMOUS_SESSION_REPORT.md:87-99` prohibit physical-device, USB/DFU,
+  exploit, flashing, restoring, and hardware-probing activity. `D2_RUNBOOK.md`
+  remains “DEFINED, NOT EXECUTED”; `M2_A16_HANDOFF_EVIDENCE_AUDIT.md` records
+  no authorized runtime. Device presence was not probed. No device
+  interaction occurred, no image was uploaded, and `Hello User` was not
+  observed.
+- **Session timing:** start `2026-10-21T13:01:16Z`, final checkpoint
+  `2026-10-21T13:30:25Z` (29m 09s elapsed).
+- **Software gates:** all 13 reproduced gate commands exited 0. Key results:
+  `make host-test-all` 41/41 files; `make raw-entry-check` 213 checks +
+  deterministic rebuild; `make raw-entry-hello-check` 47 checks;
+  `make integrity-check` 95 PASS (67 build + 28 probe); `offline_m1.sh` 33
+  checks; `capture-record-check` 60/60.
+- **Focused tests:** renderer 120 checks; A8 adapter 55 host checks (54 C
+  driver checks plus a Python `pongo.h` cross-check); M1 ABI 22; vector ABI
+  33. ASan+UBSan passed (120 renderer / 54 adapter C checks); fuzz passed
+  10,000 renderer + 5,000 adapter iterations; differential model passed
+  165/165 cases.
+- **Production image:** `build/raw_entry.bin` = 20,552 bytes, SHA-256
+  `0eb3af057a6ba82ad55c114d0a0056c1d3cea686375f535c813ba25b2cd8c635`,
+  byte-identical after all opt-in rebuilds.
+- **Opt-in demo image:** `build/raw_entry_hello.bin` = 22,672 bytes, SHA-256
+  `e89c4b9849f7d470a49e032582db94a547ae31938090d9a1ada4e326f39ee781`.
+  Three additional `make -B raw-entry-hello` builds produced the same hash.
+  It remains an opt-in artifact; it was not uploaded.
+- **Software work in the uncommitted M7.35–M7.38 tree:** x30/SP ABI fixes and
+  vector marshalling, four-field `exception_context_t` with a size assertion,
+  an 8x8 `Hello User` renderer, a default-off inherited-framebuffer A8
+  adapter, and the strict opt-in image/layout tests. Production is not
+  polluted by the demo.
+- **Audit:** fresh independent review returned **SAFE TO KEEP** with no
+  confirmed functional defect. Non-blocking test residuals remain: limited
+  M1 model state-key coverage, a hardcoded `aarch64-linux-gnu-readelf` in the
+  vector test, no opt-in hash pin in the hello-image test, and prior
+  vector-model/EL-clobber/clean-checkout coverage gaps.
+- **Documentation correction:** `BOOT_DIAGNOSTICS.md` still listed the four
+  removed `exception_context_t` fields; those four stale lines were removed.
+  This is the only source-tree correction in M7.38; no product code changed.
+- **Protected state:** production image and protected artifacts unchanged;
+  `pongoos-src` clean at `cb83dd83`; no `tests/__pycache__`.
+- **Git state before this context update:** HEAD
+  `61b8c15301dce488bb594765b979ba34a8605945`; 9 modified tracked paths
+  (8 mission paths including the doc correction, plus the untouched pre-existing
+  `AUTONOMOUS_SESSION_REPORT.md`); 10 untracked mission paths; 0 staged.
+  `AUTONOMOUS_SESSION_REPORT.md` remains a pre-existing 306-line/56,431-byte
+  working-tree addition and was not modified or staged by M7.38.
+- **Publication:** the M7.38 mission itself created no commit or push. The
+  subsequent `PROJECT_CONTEXT.md` update was published alone at the user's
+  explicit request; this exception does not authorize committing or publishing
+  the uncommitted mission changes.
+
+## Git snapshot (M7.34, historical)
 
 - Chain: `ffbf25d5` ← `0cca6c3` (first commit of this file) ← `6aecf03`
   (refactor, 80 paths) ← `b5f7db3` (merge of `origin/main` = `2b5cc79`,
@@ -150,16 +211,22 @@ Follow-ups (none blocking):
 
 1. **In progress** — Complete, reviewable source tree + reproducible
    host/QEMU validation workflow. *(M7.34: committed, reconciled, clean
-   build proven byte-identical; QEMU boot not re-run — evidence rule.)*
+   build proven byte-identical; QEMU boot not re-run — evidence rule.
+   M7.38: 41 host tests, 95 integrity checks, and sanitizer/model checks pass
+   on the uncommitted M7.35–M7.38 tree.)*
 2. **Complete (M7.34)** — Finish the platform-tree refactor with explicit
    file inventory and integrity checks. *(Landed as `6aecf03`: 80 paths,
    `host-test-all` 36/36, integrity 95 PASS.)*
-3. **Not started** — Investigate the actual Apple A8 boot and handoff
-   requirements (PongoOS `bootr`, memory map, EL state).
-4. **Not started** — Establish a viable display initialization path for
-   the iPhone 6 (this is the hard unknown behind the primary milestone).
-5. **Not started** — Render `Hello User` on the physical iPhone 6
-   (**primary milestone**).
+3. **Partially investigated / hardware-blocked** — Apple A8 boot and handoff
+   requirements (PongoOS `bootr`, memory map, EL state). Static contracts and
+   ABI fixes exist; no physical A8 boot has been observed.
+4. **Partially implemented / hardware-blocked** — Display path. An inherited-
+   framebuffer renderer/adapter and default-off opt-in image exist, but there
+   is no display-controller initialization and no physical framebuffer/scanout
+   observation.
+5. **BLOCKED / NOT VERIFIED** — Render `Hello User` on the physical iPhone 6
+   (**primary milestone**). Project policy prohibits the required physical
+   procedure; no text has been observed on the device.
 6. **Gated on 5** — Terminal and broader OS features.
 
 The roadmap is a plan, not evidence that any stage works.
@@ -187,12 +254,19 @@ The roadmap is a plan, not evidence that any stage works.
 
 ## Next concrete task
 
-1. Confirm the M7.34 push landed (`git status` shows `main` at 0 ahead of
-   `origin/main`, or `git ls-remote origin refs/heads/main` equals local
-   HEAD). If still ahead, push normally — fast-forward only, never force.
-2. Health gate for any future session: `make host-test-all` (36/36
+1. Confirm this context-only commit and push landed (`git status` shows
+   `main` at 0 ahead of `origin/main`, or `git ls-remote origin
+   refs/heads/main` equals local HEAD). Push normally only; never force.
+2. Health gate for any future session: `make host-test-all` (41/41
    expected); after any `git pull`, run the Makefile target audit noted
    under Follow-ups before trusting the tree.
-3. With the baseline established, move to roadmap 3–4 (A8 boot/handoff
-   investigation → display init path), driving toward the primary
-   milestone: **`Hello User` on the physical iPhone 6**.
+3. Do **not** attempt the physical milestone under the current safety
+   contract. A separately authorized, documented physical procedure must
+   first capture the actual `boot_args` pointer and six `Video` words, prove
+   framebuffer readability/writability and scanout persistence, establish
+   orientation/channel/alpha and upload-buffer overlap, then upload only
+   `build/raw_entry_hello.bin` and directly observe the display or the
+   exception record at `0x5000`.
+4. The M7.35–M7.38 mission changes remain uncommitted and unreviewed for
+   publication; do not stage them broadly or push them merely because this
+   context update was published.
