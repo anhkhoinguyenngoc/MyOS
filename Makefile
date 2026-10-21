@@ -479,6 +479,31 @@ capture-record-check:
 	@echo "=== CAPTURE-RECORD CHECK: PASS ==="
 
 # ========================================================================
+# M-P3.0 boot diagnostic log parser checks (host-side, no device required)
+# Parses captured UART/serial logs and reports last entered/OK/failure
+# stages, exception context, and MYOS_KERNEL_PASS presence. Source label
+# is operator-supplied; QEMU output is never physical proof.
+# ========================================================================
+
+diag-parse-test:
+	@echo "=== M-P3.0 boot diagnostic parser tests ==="
+	python3 tests/test_boot_diag_parse.py
+	@echo "=== DIAG PARSE TESTS: PASS ==="
+
+# ========================================================================
+# M-P3.0 read-only Apple USB detector checks (host-side, no device change)
+# Runs lsusb read-only and classifies 05ac:12a8/1227/4141; never switches
+# modes, sends payloads, or writes. Detection is not boot evidence.
+# ========================================================================
+
+usb-detect-test:
+	@echo "=== M-P3.0 USB detector tests ==="
+	python3 tests/test_usb_detect.py
+	@echo "=== USB DETECT TESTS: PASS ==="
+
+.PHONY: diag-parse-test usb-detect-test
+
+# ========================================================================
 # QEMU Kernel (runtime test) - separate from M1 payload
 # ========================================================================
 
