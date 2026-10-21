@@ -204,7 +204,7 @@ fi
 pass "Fault injection static inline stubs verified"
 
 # 14. Verify event buffer constants in header
-DIAG_MAX_EVENTS=$(grep -r "DIAG_MAX_EVENTS" arch/aarch64/boot_diag.h | head -1 | sed 's/.*DIAG_MAX_EVENTS *//' | sed 's/[^0-9]//g')
+DIAG_MAX_EVENTS=$(grep -r "DIAG_MAX_EVENTS" kernel/boot_diag.h | head -1 | sed 's/.*DIAG_MAX_EVENTS *//' | sed 's/[^0-9]//g')
 if [[ "$DIAG_MAX_EVENTS" == "16" ]]; then
     pass "DIAG_MAX_EVENTS = 16"
 else
@@ -212,8 +212,12 @@ else
 fi
 
 # 15. Payload size check (should still be under budget)
+# Budget is derived from the authoritative header constants, not hard-coded:
+# M1_MAX_PAYLOAD = M1_DFU_MAX_XFER - M1_EXEC_HEADER_LEN.
 SIZE=$(stat -c%s "$PAYLOAD_BIN")
-MAX_SIZE=2016
+MAX_XFER=$(grep -oE 'define M1_DFU_MAX_XFER[[:space:]]+0x[0-9a-fA-F]+' platform/apple/a8/m1_a8.h | grep -oE '0x[0-9a-fA-F]+')
+EXEC_HDR=$(grep -oE 'define M1_EXEC_HEADER_LEN[[:space:]]+0x[0-9a-fA-F]+' platform/apple/a8/m1_a8.h | grep -oE '0x[0-9a-fA-F]+')
+MAX_SIZE=$(( MAX_XFER - EXEC_HDR ))
 if [[ "$SIZE" -le "$MAX_SIZE" ]]; then
     pass "Payload size: $SIZE bytes (budget: $MAX_SIZE)"
 else

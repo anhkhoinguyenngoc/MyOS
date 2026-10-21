@@ -38,7 +38,7 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "pongoos-src", "src")
-PROBE_S = os.path.join(REPO, "boot", "aarch64", "pongo_probe.S")
+PROBE_S = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.S")
 
 ENTRY_C = os.path.join(SRC, "kernel", "entry.c")
 TASK_C = os.path.join(SRC, "kernel", "task.c")

@@ -8,7 +8,7 @@ no modification of pongoos-src or of the existing probe binary.
 What is covered
 ---------------
   * EXACT REPORT LAYOUT -- every slot written at the offset the probe's
-    own `.equ` block declares (re-derived from boot/aarch64/pongo_probe.S,
+    own `.equ` block declares (re-derived from platform/apple/a8/pongo_probe.S,
     not copied from the parser), header magic/version/report_size exact,
     0x60 total, and the pristine upload block byte-identical to the
     already-built build/pongo_probe.bin at 0x200.
@@ -37,7 +37,7 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(REPO, "tools", "host", "probe_selfreport.py")
-PROBE_S = os.path.join(REPO, "boot", "aarch64", "pongo_probe.S")
+PROBE_S = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.S")
 PROBE_BIN = os.path.join(REPO, "build", "pongo_probe.bin")
 PONGO_SRC = os.path.join(REPO, "pongoos-src", "src")
 

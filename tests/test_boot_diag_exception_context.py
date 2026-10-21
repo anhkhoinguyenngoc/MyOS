@@ -6,7 +6,7 @@ import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VECTOR_SRC = os.path.join(ROOT, "arch", "aarch64", "vectors.S")
-C_SRC = os.path.join(ROOT, 'arch', 'aarch64', 'boot_diag.h')
+C_SRC = os.path.join(ROOT, 'kernel', 'boot_diag.h')
 
 
 def test_context_saved_registers_match_structure_order():

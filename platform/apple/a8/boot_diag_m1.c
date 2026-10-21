@@ -1,14 +1,14 @@
 /*
- * arch/aarch64/boot_diag_m1.c — Minimal Boot Diagnostic for M1
+ * platform/apple/a8/boot_diag_m1.c — Minimal Boot Diagnostic for M1
  *
  * target: iphone6 (Apple A8 real hardware)
  *
  * M1-only minimal implementation. Only BOOTSTRAP stage exists.
  * No console output, no formatting, no panic handling.
- * Fits within 2016-byte DFU budget.
+ * Fits within the single DFU command-block budget (M1_MAX_PAYLOAD).
  */
 
-#include "boot_diag.h"
+#include "kernel/boot_diag.h"
 
 /* ========================================================================
  * GLOBAL STATE (minimal)

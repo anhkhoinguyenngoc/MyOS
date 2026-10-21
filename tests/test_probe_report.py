@@ -4,7 +4,7 @@ MyOS M-P2.7 -- offline tests for tools/host/probe_report.py.
 
 Covers, with the real repo as ground truth:
   * the parser's layout constants are a 1:1 mirror of the `.equ` block in
-    boot/aarch64/pongo_probe.S (lines 93-108) -- re-derived from source,
+    platform/apple/a8/pongo_probe.S (lines 93-108) -- re-derived from source,
     so the test fails if either side drifts;
   * the magic immediate stored by pongo_probe.S decodes to "MP1PRB01";
   * the built build/pongo_probe.bin carries the static header at 0x200 and
@@ -25,7 +25,7 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(REPO, "tools", "host", "probe_report.py")
-PROBE_S = os.path.join(REPO, "boot", "aarch64", "pongo_probe.S")
+PROBE_S = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.S")
 PROBE_BIN = os.path.join(REPO, "build", "pongo_probe.bin")
 
 _spec = importlib.util.spec_from_file_location("probe_report", TOOL)

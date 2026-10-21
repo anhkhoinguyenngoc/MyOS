@@ -79,7 +79,7 @@ Validation performed (fixed-size 0x60 report)
   hexdump row coverage (addresses base+16*i, exact octet counts, exact
   total length).  The MP1PRB01 format defines NO checksum field, so
   integrity here is structural, not cryptographic -- adding a checksum
-  would require changing boot/aarch64/pongo_probe.S (out of scope).
+  would require changing platform/apple/a8/pongo_probe.S (out of scope).
 
 Usage:
   python3 tools/host/report_readback.py --selfcheck   # offline, SIMULATED

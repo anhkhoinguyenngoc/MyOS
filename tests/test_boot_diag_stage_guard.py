@@ -5,7 +5,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "arch", "aarch64", "boot_diag.c")
+SRC = os.path.join(ROOT, "kernel", "boot_diag.c")
 
 
 def segmentation():

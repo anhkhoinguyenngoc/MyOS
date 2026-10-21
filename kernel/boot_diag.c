@@ -1,13 +1,18 @@
 /*
- * arch/aarch64/boot_diag.c — Boot Diagnostic Framework Implementation
+ * kernel/boot_diag.c — Boot Diagnostic Framework Implementation
  *
- * target: iphone6 (Apple A8 real hardware) AND qemu-virt (tests)
+ * target: target-independent (allocation-free, deterministic). Console output
+ *         is provided by whatever platform registers a `boot_console`; the only
+ *         implementation in this repository today is the QEMU virt PL011
+ *         (platform/qemu-virt/uart_pl011.S). No Apple A8 console driver exists
+ *         yet.
  *
  * Implementation of the boot diagnostic framework. Freestanding,
  * allocation-free, deterministic.
  */
 
 #include "boot_diag.h"
+#include "console.h"
 
 /* ========================================================================
  * GLOBAL STATE
@@ -32,14 +37,8 @@ static boot_diag_state_t diag_state = {
     /* events array zero-initialized by default */
 };
 
-/* Console instance (set by platform code) */
-struct boot_console *boot_console = NULL;
-
 /* Framebuffer renderer (optional, set by platform when available) */
 const boot_fb_renderer_t *boot_fb_renderer = NULL;
-
-/* Forward declaration for assembly implementation */
-extern void boot_console_register(struct boot_console *console);
 
 /* Register a framebuffer renderer (called by platform display driver) */
 void boot_fb_register_renderer(const boot_fb_renderer_t *renderer) {
@@ -67,27 +66,19 @@ const char * const boot_stage_names[] = {
  * ======================================================================== */
 
 static inline void diag_write_str(const char *s) {
-    if (boot_console && boot_console->ops && boot_console->ops->puts) {
-        boot_console->ops->puts(boot_console, s);
-    }
+    kconsole_puts(s);
 }
 
 static inline void diag_write_char(char c) {
-    if (boot_console && boot_console->ops && boot_console->ops->putc) {
-        boot_console->ops->putc(boot_console, c);
-    }
+    kconsole_putc(c);
 }
 
 static inline void diag_flush(void) {
-    if (boot_console && boot_console->ops && boot_console->ops->flush) {
-        boot_console->ops->flush(boot_console);
-    }
+    kconsole_flush();
 }
 
 static inline void diag_write_buf(const void *buf, size_t len) {
-    if (boot_console && boot_console->ops && boot_console->ops->write) {
-        boot_console->ops->write(boot_console, buf, len);
-    }
+    kconsole_write(buf, len);
 }
 
 /* Get current CNTPCT_EL0 if available (EL1 only) */
@@ -448,7 +439,7 @@ __attribute__((noreturn)) void boot_diag_exception_handler(
     diag_record_event(DIAG_EVENT_EXCEPTION, safe_stage, base_error | DIAG_TYPE_EXCEPTION);
 
     /* Call panic with exception context */
-    if (boot_console) {
+    {
         diag_write_str("\n");
         diag_write_str("MyOS KERNEL PANIC - UNHANDLED EXCEPTION\n");
         diag_write_str("==========================================\n\n");

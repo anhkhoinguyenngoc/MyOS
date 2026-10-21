@@ -1,7 +1,8 @@
 /*
  * arch/aarch64/vectors.S — AArch64 Exception Vector Table
  *
- * target: iphone6 (Apple A8 real hardware) AND qemu-virt (tests)
+ * target: architecture-generic (no machine-specific address). Linked into the
+ * qemu-virt kernel; contains no QEMU, Apple, or other platform constant.
  *
  * Provides the VBAR_EL1 vector table with handlers that capture
  * exception context and invoke the diagnostic framework.
@@ -202,29 +203,9 @@ serror_exception_handler:
 
 .global vbar_el1_install
 vbar_el1_install:
-    /* Debug: write single char to confirm entry */
-    mov     x0, #0x09000000
-    mov     w1, #'V'
-    str     w1, [x0, #0x00]
-    
     adr     x0, vbar_el1_table
     msr     VBAR_EL1, x0
     isb
-    /* Debug: write single char to confirm return */
-    mov     x0, #0x09000000
-    mov     w1, #'v'
-    str     w1, [x0, #0x00]
-    
-    /* Print "VBAR" to show function was called */
-    mov     x0, #0x09000000
-    mov     w1, #'V'
-    str     w1, [x0, #0x00]
-    mov     w1, #'B'
-    str     w1, [x0, #0x00]
-    mov     w1, #'A'
-    str     w1, [x0, #0x00]
-    mov     w1, #'R'
-    str     w1, [x0, #0x00]
     ret
 
 .size vbar_el1_table, .-vbar_el1_table

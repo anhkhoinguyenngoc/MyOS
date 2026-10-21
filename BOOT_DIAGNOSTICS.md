@@ -125,7 +125,7 @@ typedef struct {
 } boot_diag_state_t;
 ```
 
-Located at `arch/aarch64/boot_diag.c:diag_state` (static, use `boot_diag_get_state()`).
+Located at `kernel/boot_diag.c:diag_state` (static, use `boot_diag_get_state()`).
 
 ### Event Buffer (`diag_event_t`)
 
@@ -251,7 +251,7 @@ int boot_diag_fault_injection_enabled(void);
 
 ## Integration Points
 
-### 1. Assembly Entry (`boot/aarch64/m1_entry.S`)
+### 1. Assembly Entry (`platform/apple/a8/m1_entry.S`)
 
 ```assembly
 .global boot_diag_init

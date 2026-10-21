@@ -34,7 +34,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(REPO, "tools", "host", "report_readback.py")
 CLIENT = os.path.join(REPO, "tools", "host", "pongo_client.py")
 SRC = os.path.join(REPO, "pongoos-src", "src")
-PROBE_S = os.path.join(REPO, "boot", "aarch64", "pongo_probe.S")
+PROBE_S = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.S")
 
 sys.path.insert(0, os.path.join(REPO, "tools", "host"))
 import probe_report as pr  # noqa: E402

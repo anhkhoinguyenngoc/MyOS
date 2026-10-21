@@ -2,7 +2,7 @@
 """
 MyOS M-P2.7 -- Probe report parser (host-side, stdlib only, OFFLINE).
 
-Parses the MP1PRB01 report block defined by boot/aarch64/pongo_probe.S
+Parses the MP1PRB01 report block defined by platform/apple/a8/pongo_probe.S
 (the `.equ` block at lines 93-108 is the single source of truth for the
 layout).  In the raw image the report lives at fixed file offset 0x200
 (RPT_OFF); the probe records it at runtime immediately after the PongoOS
@@ -41,7 +41,7 @@ import sys
 
 # ---------------------------------------------------------------------------
 # Layout constants -- a 1:1 mirror of the `.equ` block in
-# boot/aarch64/pongo_probe.S (lines 93-108).  The tests re-derive the .equ
+# platform/apple/a8/pongo_probe.S (lines 93-108).  The tests re-derive the .equ
 # values from the source and assert equality with EQU_MIRROR, so any drift
 # in either place fails CI.
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ def parse_report(blob, offset=0):
     for name, off in DYNAMIC_FIELDS:
         report[name] = struct.unpack_from("<Q", slot, off)[0]
     # Validate reserved field per MP1PRB01 format contract:
-    # boot/aarch64/pongo_probe.S defines RPT_ZERO_OFF = 0x58 with comment
+    # platform/apple/a8/pongo_probe.S defines RPT_ZERO_OFF = 0x58 with comment
     # "reserved_zero (always 0)". This is a structural requirement.
     reserved = report.get("reserved_zero", 0)
     if reserved != 0:

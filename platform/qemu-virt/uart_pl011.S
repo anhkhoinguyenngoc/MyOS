@@ -1,7 +1,7 @@
 /*
  * PL011 UART driver for QEMU virt (AArch64) - Assembly implementation
  *
- * QEMU virt machine provides a PL011 UART at 0x09000000.
+ * QEMU virt machine provides a PL011 UART at MYOS_QEMU_VIRT_PL011_BASE.
  * This driver provides early initialization and console operations
  * for the boot diagnostic framework.
  *
@@ -9,6 +9,17 @@
  *
  * Written in assembly to avoid compiler bugs with -mgeneral-regs-only
  */
+
+/*
+ * Build-time platform guard (M6). This driver only knows the QEMU virt PL011
+ * base (MYOS_QEMU_VIRT_PL011_BASE). Refuse to assemble it for a non-QEMU
+ * platform; a physical target needs its own console driver (none exists yet).
+ */
+#ifndef MYOS_PLATFORM_QEMU_VIRT
+#error "platform/qemu-virt/uart_pl011.S is the QEMU virt PL011 driver only; refusing non-QEMU build (see PLATFORM_INTERFACE.md)."
+#endif
+
+#include "platform/qemu-virt/qemu_virt_defs.h"
 
 /* PL011 register offsets */
 #define UARTDR      0x00
@@ -34,7 +45,7 @@
 #define UARTLCR_H_FEN (1 << 4)
 #define UARTLCR_H_WLEN_8 (3 << 5)
 
-#define PL011_BASE    0x09000000
+#define PL011_BASE    MYOS_QEMU_VIRT_PL011_BASE
 
     .section .text, "ax"
 
@@ -84,7 +95,6 @@ uart_pl011_init_early:
     .align 8
     .global uart_pl011_ops
 uart_pl011_ops:
-    .quad 0                    /* init = NULL */
     .quad uart_pl011_putc
     .quad uart_pl011_puts
     .quad uart_pl011_write
@@ -148,23 +158,4 @@ uart_pl011_flush:
     tbnz w2, #3, 2b
     ret
 
-    .global uart_pl011_init
-    .type uart_pl011_init, %function
-uart_pl011_init:
-    /* Already initialized in early init */
-    mov w0, #0
-    ret
-
     .size uart_pl011_init_early, .-uart_pl011_init_early
-
-    .section .text, "ax"
-    .global boot_console_register
-    .type boot_console_register, %function
-boot_console_register:
-    /* x0 = console pointer */
-    adrp x1, boot_console
-    str x0, [x1]
-    dsb sy
-    ret
-
-    .size boot_console_register, .-boot_console_register

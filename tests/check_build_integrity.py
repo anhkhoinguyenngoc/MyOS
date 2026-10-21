@@ -15,7 +15,13 @@ For every artifact this verifies:
   * .text is linked at the script's load base,
   * explicitly addressed sections (e.g. .report 0x200) sit at that address,
   * the image is freestanding (no dynamic-linking sections),
-  * the flat binary honours its documented size/format constraints.
+  * the flat binary honours its documented size/format constraints,
+  * the artifact is not older than any Makefile-DECLARED transitive
+     prerequisite (declared-dependency freshness: an out-of-date build
+     product is a FAIL.  This detects staleness using the same
+     prerequisite-mtime relation make itself uses to trigger a rebuild; it
+     does not by itself prove byte-reproducibility, which
+     `make raw-entry-check` establishes separately via `cmp`).
 
 The checker is read-only: it never modifies an artifact.  It does not require
 QEMU unless --require-qemu is given.  A missing file, missing Makefile
@@ -53,6 +59,7 @@ ARTIFACT_VARS = (
     ("m1", "PAYLOAD_ELF", "PAYLOAD_BIN"),
     ("kernel", "KERNEL_ELF", None),
     ("probe", "PROBE_ELF", "PROBE_BIN"),
+    ("raw_entry", "RAW_ELF", "RAW_BIN"),
 )
 
 REPO = "."
@@ -131,6 +138,118 @@ def makefile_rule_linker(text: str, target_var: str) -> str | None:
                 if m:
                     return m.group(1)
     return None
+
+
+def parse_make_rules(text: str, variables: dict[str, str]) -> dict[str, list[str]]:
+    """Parse the plain `target: prereqs` rules this Makefile uses.
+
+    Joins backslash continuations, strips comments, and ignores recipe lines,
+    variable assignments, conditionals and special (dot) targets.  Order-only
+    prerequisites (after `|`) are dropped: they never trigger a rebuild.
+    Targets and prerequisites are `$(VAR)`-expanded with *variables* so the
+    result can be looked up by the expanded artifact paths.
+    """
+    rules: dict[str, list[str]] = {}
+
+    def emit(logical: str) -> None:
+        stripped = logical.strip()
+        if not stripped or stripped.startswith("."):
+            return
+        if re.match(
+            r"^(define|endef|include|-include|ifeq|ifneq|"
+            r"ifdef|ifndef|else|endif|export|unexport)\b",
+            stripped,
+        ):
+            return
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*[:?+]?=", stripped):
+            return  # variable assignment (VAR := ..., VAR = ..., VAR += ...)
+        m = re.match(r"^([^\s:#=]+(?:[ \t]+[^\s:#=]+)*)\s*:\s*(.*)$", stripped)
+        if not m:
+            return
+        targets, prereq_str = m.groups()
+        prereqs = prereq_str.split("|", 1)[0].split()  # drop order-only part
+        if not prereqs:
+            return
+        for target in targets.split():
+            key = makefile_expand(target, variables)
+            for pre in prereqs:
+                rules.setdefault(key, []).append(makefile_expand(pre, variables))
+
+    pending = ""
+    for raw in text.splitlines():
+        if raw.startswith("\t"):
+            if pending:  # recipe after an unfinished continuation: malformed,
+                emit(pending)  # flush it rather than silently merging
+            pending = ""
+            continue
+        line = raw.split("#", 1)[0].rstrip()
+        if pending:
+            line = pending + " " + line.strip()
+            pending = ""
+        if line.endswith("\\"):
+            pending = line[:-1].rstrip()
+            continue
+        emit(line)
+    if pending:
+        emit(pending)
+    return rules
+
+
+def artifact_freshness(
+    artifact: str, rules: dict[str, list[str]], repo: str
+) -> tuple[str, str]:
+    """Freshness of *artifact* (repo-relative) vs its declared prerequisites.
+
+    Definition: stale iff any declared prerequisite file (leaf source, header,
+    linker script, or intermediate object) has an mtime STRICTLY newer than
+    the artifact -- the same relation GNU make uses to decide a rebuild.  This
+    detects an out-of-date build product; it does NOT prove that a rebuild
+    reproduces the artifact byte-for-byte (that is established separately by
+    `make raw-entry-check` via `cmp`).
+
+    Returns (status, detail); status is exactly one of:
+      "fresh"            present, rule found, not older than any prerequisite
+      "stale"            a named prerequisite is newer than the artifact
+      "missing-artifact" the artifact itself is absent
+      "missing-source"   a declared prerequisite file is absent (unverifiable)
+      "no-rule"          the Makefile declares no (non-order-only) rule
+    """
+    art_abs = os.path.join(repo, artifact)
+    if not os.path.isfile(art_abs):
+        return "missing-artifact", artifact
+    prereqs = rules.get(artifact, [])
+    if not prereqs:
+        return "no-rule", artifact
+
+    missing: list[str] = []
+    newest: tuple[float, str] | None = None
+    seen: set[str] = set()
+
+    def walk(target: str) -> None:
+        nonlocal newest
+        for pre in rules.get(target, []):
+            if pre in seen:
+                continue
+            seen.add(pre)
+            if pre in rules:
+                walk(pre)  # intermediate target: recurse into its own inputs
+            pre_abs = os.path.join(repo, pre)
+            if not os.path.isfile(pre_abs):
+                missing.append(pre)
+                continue
+            mt = os.path.getmtime(pre_abs)
+            if newest is None or mt > newest[0]:
+                newest = (mt, pre)
+
+    walk(artifact)
+
+    if missing:
+        return "missing-source", ", ".join(sorted(missing))
+    if newest is None:
+        return "no-rule", artifact  # nothing comparable found
+    if newest[0] > os.path.getmtime(art_abs):
+        return "stale", f"{newest[1]} is newer than {artifact}"
+    return "fresh", f"{len(seen)} declared prerequisites checked"
 
 
 _SEC_RE = re.compile(
@@ -412,7 +531,7 @@ def check_probe_report_magic(makefile_text: str, specs: list[dict]) -> None:
         check("probe_report_magic", False, f".report address not in {probe['ld']}")
         return
 
-    src_rel = "boot/aarch64/pongo_probe.S"
+    src_rel = "platform/apple/a8/pongo_probe.S"
     if not os.path.isfile(rp(src_rel)):
         check("probe_report_magic", False, f"missing {src_rel}")
         return
@@ -454,6 +573,35 @@ def check_probe_pin(specs: list[dict]) -> None:
         sha == PROBE_PIN_SHA256,
         f"sha256={sha}",
     )
+
+
+def check_freshness(makefile_text: str, specs: list[dict]) -> None:
+    """Declared-dependency freshness for every derived artifact (see
+    artifact_freshness for the exact stale/fresh semantics).
+
+    Read-only (stat only): it never triggers a build and never writes.
+    A missing artifact is reported once by the existing *_exists check, so
+    freshness emits an explicit SKIP line for it instead of a second FAIL or
+    a pass that cannot be justified.
+    """
+    variables = makefile_vars(makefile_text)
+    rules = parse_make_rules(makefile_text, variables)
+    for spec in specs:
+        for kind in ("elf", "bin"):
+            path = spec.get(kind)
+            if not path:
+                continue
+            label = f"{spec['name']}_{kind}_freshness"
+            status, detail = artifact_freshness(path, rules, REPO)
+            if status == "fresh":
+                check(label, True, detail)
+            elif status == "missing-artifact":
+                print(
+                    f"  SKIP {label}: artifact missing "
+                    f"(see {spec['name']}_{kind}_exists)"
+                )
+            else:
+                check(label, False, f"{status}: {detail}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -511,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
         if specs:
             check_probe_report_magic(makefile_text, specs)
             check_probe_pin(specs)
+            check_freshness(makefile_text, specs)
 
     failed = [n for n, ok, _ in _results if not ok]
     total = len(_results)

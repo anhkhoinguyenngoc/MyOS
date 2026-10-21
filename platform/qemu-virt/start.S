@@ -12,14 +12,27 @@
  *   - Runs through boot stages via diagnostic framework
  *   - Calls kernel_main()
  *
- * Target: QEMU virt (AArch64) with PL011 UART at 0x09000000
+ * Target: QEMU virt (AArch64) with PL011 UART at MYOS_QEMU_VIRT_PL011_BASE
  * CPU: cortex-a57 (or any AArch64 CPU supported by QEMU virt)
  *
  * NOT for iPhone 6 / A8 hardware - that uses the M1 payload path via PongoOS.
  */
 
+/*
+ * Build-time platform guard (M6). This file is QEMU virt boot code: it talks
+ * to the QEMU PL011 at MYOS_QEMU_VIRT_PL011_BASE and assumes the QEMU virt load
+ * address from platform/qemu-virt/kernel.ld. Refuse to assemble it for any
+ * other platform so a future physical target cannot silently reuse QEMU
+ * assumptions.
+ */
+#ifndef MYOS_PLATFORM_QEMU_VIRT
+#error "platform/qemu-virt/start.S is QEMU virt boot code only; refusing non-QEMU build (see PLATFORM_INTERFACE.md)."
+#endif
+
+#include "platform/qemu-virt/qemu_virt_defs.h"
+
 /* PL011 UART register offsets */
-#define PL011_BASE    0x09000000
+#define PL011_BASE    MYOS_QEMU_VIRT_PL011_BASE
 #define UARTDR        0x00
 #define UARTFR        0x18
 
@@ -29,13 +42,8 @@
 
 /* Forward declarations for C functions */
     .global kernel_main
-    .global boot_diag_init
-    .global boot_diag_begin
-    .global boot_diag_ok
-    .global boot_diag_fail
     .global vbar_el1_install
     .global uart_pl011_init_early
-    .global boot_console_register
 
 _start:
     /* ========================================================================
@@ -83,10 +91,12 @@ _start:
     bl      boot_console_register
     adr     x2, after_uart_init_msg
     bl      early_uart_puts
+    b       uart_init_done
 
 uart_null:
     adr     x2, debug_console_null_msg
     bl      early_uart_puts
+uart_init_done:
 
     /* ========================================================================
      * 6. Initialize diagnostic framework
@@ -96,24 +106,10 @@ uart_null:
     bl      early_uart_puts
 
     /* ========================================================================
-     * 7. Verify boot_console was set
+     * 7. Initialize diagnostic framework
      * ======================================================================== */
-    adrp    x0, boot_console
-    ldr     x0, [x0]
-    cbz     x0, console_null
-    b       verification_done
-
-console_null:
-    /* Console not registered - continue anyway */
-    b       verification_done
-
-verification_done:
-
-    /* ========================================================================
-     * 9. Install exception vector table (VBAR_EL1)
-     * ======================================================================== */
-    bl      vbar_el1_install
-    adr     x2, after_vbar_msg
+    bl      boot_diag_init
+    adr     x2, after_diag_init_msg
     bl      early_uart_puts
 
     /* ========================================================================
@@ -231,26 +227,15 @@ early_uart_puts:
  * ======================================================================== */
     .section .rodata
 early_msg:
-    .ascii  "MyOS kernel entry\n"
-    .align 3
+    .asciz  "MyOS kernel entry\n"
 after_uart_init_msg:
-    .ascii  "After uart init\n"
-    .align 3
+    .asciz  "After uart init\n"
 after_diag_init_msg:
-    .ascii  "After diag init\n"
-    .align 3
-after_console_reg_msg:
-    .ascii  "After console reg\n"
-    .align 3
-debug_console_ok:
-    .ascii  "DBG: console OK\n"
-    .align 3
+    .asciz  "After diag init\n"
 debug_console_null_msg:
-    .ascii  "DBG: console NULL\n"
-    .align 3
+    .asciz  "DBG: console NULL\n"
 after_vbar_msg:
-    .ascii  "After vbar install\n"
-    .align 3
+    .asciz  "After vbar install\n"
 stage0_msg:
     .ascii  "S0b\n"
     .align 3
@@ -304,11 +289,6 @@ stage10_msg:
     .align 3
 
     .section .bss
-    .align 8
-    .global boot_console_early
-boot_console_early:
-    .skip   32                      /* struct boot_console { ops, platform_data } */
-
     .align 16
     .global _stack_bottom
 _stack_bottom:

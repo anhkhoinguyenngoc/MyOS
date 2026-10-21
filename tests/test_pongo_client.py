@@ -65,7 +65,7 @@ SHELL_MAIN_C = os.path.join(SRC, "shell", "main.c")
 
 USBLOADER_C = os.path.join(SRC, "shell", "usbloader.c")
 TASK_C = os.path.join(SRC, "kernel", "task.c")
-PROBE_S = os.path.join(REPO, "boot", "aarch64", "pongo_probe.S")
+PROBE_S = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.S")
 
 
 def _read(path):

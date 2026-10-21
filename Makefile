@@ -10,6 +10,23 @@ CROSS_CC  := $(CROSS)gcc
 CROSS_LD  := $(CROSS)ld
 CROSS_OBJCOPY := $(CROSS)objcopy
 
+# ========================================================================
+# M6 platform selection — the QEMU-vs-physical-target boundary.
+# QEMU `virt` is the only implemented, known-good platform. apple-a8 is
+# declared under platform/apple/a8/ as UNSUPPORTED (contract only); selecting
+# it fails the build on purpose so QEMU code cannot be reused under an
+# "iphone6" name. See PLATFORM_INTERFACE.md.
+# ========================================================================
+PLATFORM ?= qemu-virt
+
+ifeq ($(PLATFORM),qemu-virt)
+  PLATFORM_DEFS := -DMYOS_PLATFORM_QEMU_VIRT=1
+else ifeq ($(PLATFORM),apple-a8)
+  $(error PLATFORM=apple-a8 is UNSUPPORTED: no validated boot handoff, memory map, or console exists. QEMU virt is the only implemented platform; see PLATFORM_INTERFACE.md)
+else
+  $(error Unknown PLATFORM '$(PLATFORM)': expected `qemu-virt`)
+endif
+
 PAYLOAD_ELF := $(BUILD)/myos_m1.elf
 PAYLOAD_BIN := $(BUILD)/myos_m1.bin
 M1CTL       := $(BUILD)/m1ctl
@@ -24,18 +41,19 @@ CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
 # Kernel-specific flags (allow larger code, no size constraint)
 KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 \
-                     -Wall -Wextra -mgeneral-regs-only
+                     -Wall -Wextra -mgeneral-regs-only $(PLATFORM_DEFS)
 
-.PHONY: all payload m1ctl kernel probe qemu offline test clean \
+.PHONY: all payload m1ctl kernel probe raw-entry raw-entry-check \
+        qemu offline test clean \
         usb-watch usb-watch-test usb-watch-check pongo-addr-check \
         pongo-artifact-check regs-output-check \
         pongo-client-test probe-report-test report-readback-test \
-        probe-selfreport-test
+        probe-selfreport-test capture-record-check
 
 all: payload m1ctl
 
 # ========================================================================
-# M1 Payload (iPhone 6 DFU command) - must stay <= 2016 bytes
+# M1 Payload (iPhone 6 DFU command) - must fit M1_MAX_PAYLOAD (0x800-0x50)
 # ========================================================================
 
 payload: $(PAYLOAD_BIN)
@@ -43,23 +61,23 @@ payload: $(PAYLOAD_BIN)
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BUILD)/m1_entry.o: boot/aarch64/m1_entry.S | $(BUILD)
+$(BUILD)/m1_entry.o: platform/apple/a8/m1_entry.S | $(BUILD)
 	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
 
-$(BUILD)/boot_diag_m1.o: arch/aarch64/boot_diag_m1.c arch/aarch64/boot_diag.h | $(BUILD)
-	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+$(BUILD)/boot_diag_m1.o: platform/apple/a8/boot_diag_m1.c kernel/boot_diag.h | $(BUILD)
+	$(CROSS_CC) $(CROSSFLAGS) -I. -c $< -o $@
 
 # link with ld directly: the gcc driver would add PIE/dynamic-linker
 # sections (.interp/.dynamic/.got) that must never reach the payload blob
-$(PAYLOAD_ELF): $(BUILD)/m1_entry.o $(BUILD)/boot_diag_m1.o boot/aarch64/m1.ld
-	$(CROSS_LD) -T boot/aarch64/m1.ld --build-id=none -o $@ $(BUILD)/m1_entry.o $(BUILD)/boot_diag_m1.o
+$(PAYLOAD_ELF): $(BUILD)/m1_entry.o $(BUILD)/boot_diag_m1.o platform/apple/a8/m1.ld
+	$(CROSS_LD) -T platform/apple/a8/m1.ld --build-id=none -o $@ $(BUILD)/m1_entry.o $(BUILD)/boot_diag_m1.o
 
 $(PAYLOAD_BIN): $(PAYLOAD_ELF)
 	$(CROSS_OBJCOPY) -O binary $< $@
 
 m1ctl: $(M1CTL)
 
-$(M1CTL): tools/host/m1ctl.c platform/apple/a8/m1_a8.h | $(BUILD)
+$(M1CTL): tools/host/m1ctl.c tools/host/m1_proto.h platform/apple/a8/m1_a8.h | $(BUILD)
 	$(CC_HOST) -O2 -Wall -Wextra -o $@ tools/host/m1ctl.c -lusb-1.0
 
 # ========================================================================
@@ -113,14 +131,226 @@ PROBE_BIN := $(BUILD)/pongo_probe.bin
 
 probe: $(PROBE_BIN)
 
-$(BUILD)/pongo_probe.o: boot/aarch64/pongo_probe.S | $(BUILD)
+$(BUILD)/pongo_probe.o: platform/apple/a8/pongo_probe.S | $(BUILD)
 	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
 
-$(PROBE_ELF): $(BUILD)/pongo_probe.o boot/aarch64/pongo_probe.ld
-	$(CROSS_LD) -T boot/aarch64/pongo_probe.ld --build-id=none -o $@ $(BUILD)/pongo_probe.o
+$(PROBE_ELF): $(BUILD)/pongo_probe.o platform/apple/a8/pongo_probe.ld
+	$(CROSS_LD) -T platform/apple/a8/pongo_probe.ld --build-id=none -o $@ $(BUILD)/pongo_probe.o
 
 $(PROBE_BIN): $(PROBE_ELF)
 	$(CROSS_OBJCOPY) -O binary $< $@
+
+# ========================================================================
+# M7.11 A8 RAW entry trampoline (PongoOS `bootr` handoff, stack-owning).
+# Position-independent; linked at 0; entry at file offset 0; the image owns
+# its stack inside its own uploaded bytes (.stack, 0x4000). Requires an
+# AArch64 toolchain; QEMU kernel path untouched.
+# ========================================================================
+
+RAW_ELF := $(BUILD)/raw_entry.elf
+RAW_BIN := $(BUILD)/raw_entry.bin
+
+raw-entry: $(RAW_BIN)
+
+$(BUILD)/raw_entry.o: platform/apple/a8/raw_entry.S | $(BUILD)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+# -mgeneral-regs-only: FP/SIMD state at handoff is unknown (CPACR_EL1 is
+# never touched on this path); the payload must use general registers only.
+$(BUILD)/raw_main.o: platform/apple/a8/raw_main.c | $(BUILD)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -c $< -o $@
+
+$(BUILD)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(BUILD)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_ELF): $(BUILD)/raw_entry.o $(BUILD)/raw_main.o $(BUILD)/raw_vectors.o platform/apple/a8/raw_entry.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry.ld --build-id=none -o $@ \
+		$(BUILD)/raw_entry.o $(BUILD)/raw_main.o $(BUILD)/raw_vectors.o
+
+$(RAW_BIN): $(RAW_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+# ========================================================================
+# M7.12 raw-image artifact validation (host-side, OFFLINE, strict).
+#   raw-entry        : authoritative image build -> build/raw_entry.bin
+#   raw-entry-check  : rebuilds the image from source into
+#                      build/raw_entry-verify/ (full second derivation),
+#                      byte-compares it with build/raw_entry.bin (determinism),
+#                      then runs the artifact validator in STRICT mode
+#                      (--require-artifact: a missing artifact, a missing
+#                      AArch64 tool or any contract violation fails the
+#                      target; nothing is silently skipped). A missing
+#                      toolchain fails the compile/link steps with the
+#                      concrete tool name. Validation covers the real linked
+#                      ELF and flat binary; no device, no upload, no boot.
+# ========================================================================
+
+RAW_VERIFY_BIN := $(BUILD)/raw_entry-verify/raw_entry.bin
+
+$(RAW_VERIFY_BIN): platform/apple/a8/raw_entry.S \
+                   platform/apple/a8/raw_main.c \
+                   platform/apple/a8/raw_vectors.S \
+                   platform/apple/a8/raw_entry.ld
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(CROSSFLAGS) -c platform/apple/a8/raw_entry.S -o $(dir $@)raw_entry.o
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -c platform/apple/a8/raw_main.c -o $(dir $@)raw_main.o
+	$(CROSS_CC) $(CROSSFLAGS) -c platform/apple/a8/raw_vectors.S -o $(dir $@)raw_vectors.o
+	$(CROSS_LD) -T platform/apple/a8/raw_entry.ld --build-id=none \
+		-o $(dir $@)raw_entry.elf $(dir $@)raw_entry.o $(dir $@)raw_main.o $(dir $@)raw_vectors.o
+	$(CROSS_OBJCOPY) -O binary $(dir $@)raw_entry.elf $@
+
+# Stage separation: validator failure stops before the marker line; a missing
+# marker after the validator means the cmp of the two derivations failed.
+raw-entry-check: $(RAW_BIN) $(RAW_VERIFY_BIN)
+	python3 tests/test_a8_raw_entry.py --require-artifact
+	@echo "raw-entry-check: artifact validation PASS; comparing independent derivations"
+	cmp $(RAW_BIN) $(RAW_VERIFY_BIN)
+	@echo "=== RAW-ENTRY CHECK: PASS (artifact contract + deterministic rebuild) ==="
+
+# ========================================================================
+# M7.14 exception-path RUNTIME verification (QEMU emulation, fail-closed).
+#   raw-entry-runtime-test : builds a TEST-ONLY image in
+#                      build/raw-entry-runtime/ from the SAME production
+#                      raw_entry.S + raw_vectors.S + raw_entry.ld (the C
+#                      entry raw_main.c is replaced by the test trigger
+#                      tests/a8_runtime/a8_trigger.S, which executes a
+#                      controlled BRK), boots it at EL1 on QEMU virt
+#                      (secure=off, virtualization=off: no EL3/EL2), lets
+#                      the REAL VBAR_EL1 install / vector dispatch /
+#                      capture handler / park run, and validates the
+#                      record read back from guest memory against the
+#                      trigger contract (tests/a8_exc_runtime.py).
+#                      The production image is hashed before and after, so
+#                      the test-only build cannot leak into it. A timeout,
+#                      a missing emulator, a stale image, a wrong slot,
+#                      syndrome, PC or marker all fail the target; nothing
+#                      is skipped and no QEMU boot of the M1/M2 kernel
+#                      path is involved or modified.
+#   M7.15 scenarios : the same target also runs two separately identified
+#                      SCENARIO runs that EXPLICITLY establish the
+#                      pre-exception state with a test-only boot shim
+#                      (tests/a8_runtime/a8_boot_shim.S) built into
+#                      build/raw-entry-runtime/shim/ (never into the
+#                      production image): SP0 (shim sets spsel 0 ->
+#                      expected slot 0, Current EL SP0 Synchronous) and
+#                      SPx (shim sets spsel 1 -> expected slot 4, Current
+#                      EL SPx Synchronous). Each scenario writes its own
+#                      evidence directory; the harness rejects a
+#                      wrong-scenario, stale or tampered shim before QEMU
+#                      starts.
+# ========================================================================
+
+RUNTIME_DIR := $(BUILD)/raw-entry-runtime
+RUNTIME_ELF := $(RUNTIME_DIR)/raw_entry_runtime.elf
+RUNTIME_BIN := $(RUNTIME_DIR)/raw_entry_runtime.bin
+RUNTIME_LOAD_ADDR := 0x41000000
+RUNTIME_TIMEOUT := 10
+SHIM_DIR := $(RUNTIME_DIR)/shim
+SHIM_LOAD_ADDR := 0x43000000
+SHIM_S := tests/a8_runtime/a8_boot_shim.S
+SHIM_SP0_O := $(SHIM_DIR)/a8_boot_shim_sp0.o
+SHIM_SP0_ELF := $(SHIM_DIR)/a8_boot_shim_sp0.elf
+SHIM_SP0_BIN := $(SHIM_DIR)/a8_boot_shim_sp0.bin
+SHIM_SPX_O := $(SHIM_DIR)/a8_boot_shim_spx.o
+SHIM_SPX_ELF := $(SHIM_DIR)/a8_boot_shim_spx.elf
+SHIM_SPX_BIN := $(SHIM_DIR)/a8_boot_shim_spx.bin
+
+# TEST-ONLY boot shims: one object per scenario (MYOS_A8_SHIM_SPSEL
+# selects the SPSel the shim must establish), linked at the documented shim
+# load address with the runtime image base baked into the branch word.
+# These never enter the production artifact: `make raw-entry` does not
+# depend on them, and the runtime target re-hashes production
+# raw_entry.bin around the whole scenario sequence.
+$(SHIM_SP0_O): $(SHIM_S) | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(CROSSFLAGS) -DMYOS_A8_SHIM_SPSEL=0 \
+		-DMYOS_A8_SHIM_IMAGE_ADDR=$(RUNTIME_LOAD_ADDR) -c $< -o $@
+
+$(SHIM_SP0_ELF): $(SHIM_SP0_O)
+	$(CROSS_LD) -e myos_a8_shim_start -Ttext=$(SHIM_LOAD_ADDR) --build-id=none -o $@ $<
+
+$(SHIM_SP0_BIN): $(SHIM_SP0_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+$(SHIM_SPX_O): $(SHIM_S) | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(CROSSFLAGS) -DMYOS_A8_SHIM_SPSEL=1 \
+		-DMYOS_A8_SHIM_IMAGE_ADDR=$(RUNTIME_LOAD_ADDR) -c $< -o $@
+
+$(SHIM_SPX_ELF): $(SHIM_SPX_O)
+	$(CROSS_LD) -e myos_a8_shim_start -Ttext=$(SHIM_LOAD_ADDR) --build-id=none -o $@ $<
+
+$(SHIM_SPX_BIN): $(SHIM_SPX_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+$(RUNTIME_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RUNTIME_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RUNTIME_DIR)/a8_trigger.o: tests/a8_runtime/a8_trigger.S | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RUNTIME_ELF): $(RUNTIME_DIR)/raw_entry.o $(RUNTIME_DIR)/a8_trigger.o \
+                $(RUNTIME_DIR)/raw_vectors.o platform/apple/a8/raw_entry.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry.ld --build-id=none -o $@ \
+		$(RUNTIME_DIR)/raw_entry.o $(RUNTIME_DIR)/a8_trigger.o $(RUNTIME_DIR)/raw_vectors.o
+
+$(RUNTIME_BIN): $(RUNTIME_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+raw-entry-runtime-test: $(RAW_BIN) $(RUNTIME_BIN) \
+                         $(SHIM_SP0_BIN) $(SHIM_SPX_BIN)
+	@before=$$(sha256sum $(RAW_BIN) | cut -d' ' -f1); rc=0; \
+	python3 tests/a8_exc_runtime.py \
+		--image $(RUNTIME_BIN) --elf $(RUNTIME_ELF) \
+		--qemu $(QEMU) --nm $(CROSS)nm --objdump $(CROSS)objdump \
+		--load-addr $(RUNTIME_LOAD_ADDR) --timeout $(RUNTIME_TIMEOUT) \
+		--evidence-dir $(RUNTIME_DIR)/evidence \
+		--source platform/apple/a8/raw_entry.S \
+		--source platform/apple/a8/raw_vectors.S \
+		--source tests/a8_runtime/a8_trigger.S \
+		--source platform/apple/a8/raw_entry.ld || rc=$$?; \
+	if [ $$rc -eq 0 ]; then \
+		python3 tests/a8_exc_runtime.py \
+			--image $(RUNTIME_BIN) --elf $(RUNTIME_ELF) \
+			--qemu $(QEMU) --nm $(CROSS)nm --objdump $(CROSS)objdump \
+			--load-addr $(RUNTIME_LOAD_ADDR) --timeout $(RUNTIME_TIMEOUT) \
+			--evidence-dir $(RUNTIME_DIR)/scenario-sp0/evidence \
+			--shim $(SHIM_SP0_BIN) --shim-elf $(SHIM_SP0_ELF) \
+			--shim-load-addr $(SHIM_LOAD_ADDR) --spsel 0 \
+			--source platform/apple/a8/raw_entry.S \
+			--source platform/apple/a8/raw_vectors.S \
+			--source tests/a8_runtime/a8_trigger.S \
+			--source platform/apple/a8/raw_entry.ld \
+			--shim-source $(SHIM_S) || rc=$$?; \
+	fi; \
+	if [ $$rc -eq 0 ]; then \
+		python3 tests/a8_exc_runtime.py \
+			--image $(RUNTIME_BIN) --elf $(RUNTIME_ELF) \
+			--qemu $(QEMU) --nm $(CROSS)nm --objdump $(CROSS)objdump \
+			--load-addr $(RUNTIME_LOAD_ADDR) --timeout $(RUNTIME_TIMEOUT) \
+			--evidence-dir $(RUNTIME_DIR)/scenario-spx/evidence \
+			--shim $(SHIM_SPX_BIN) --shim-elf $(SHIM_SPX_ELF) \
+			--shim-load-addr $(SHIM_LOAD_ADDR) --spsel 1 \
+			--source platform/apple/a8/raw_entry.S \
+			--source platform/apple/a8/raw_vectors.S \
+			--source tests/a8_runtime/a8_trigger.S \
+			--source platform/apple/a8/raw_entry.ld \
+			--shim-source $(SHIM_S) || rc=$$?; \
+	fi; \
+	after=$$(sha256sum $(RAW_BIN) | cut -d' ' -f1); \
+	if [ "$$before" != "$$after" ]; then \
+		echo "raw-entry-runtime-test: FAIL: production raw_entry.bin hash changed during the test-only build"; \
+		rc=1; \
+	fi; \
+	exit $$rc
+
+.PHONY: raw-entry-runtime-test
 
 # ========================================================================
 # M-P2.4 PongoOS symbol / address resolution check (host-side, offline).
@@ -234,31 +464,61 @@ probe-selfreport-test:
 	@echo "=== PROBE-SELFREPORT TEST: PASS ==="
 
 # ========================================================================
+# M6.2 A8 entry-capture record format (host-side, OFFLINE).
+# Reference encoder/parser + malformed-input matrix for
+# M6_1_A8_ENTRY_CAPTURE_SPEC.md §3. stdlib only; no USB, no device, no
+# on-target producer, no hardware value asserted. See the M1 wire-format
+# helper tests (tests/test_m1_proto.py) for the exec-block side.
+# ========================================================================
+
+capture-record-check:
+	@echo "=== capture-record self-check (SYNTHETIC) ==="
+	python3 tools/host/capture_record.py --selftest
+	@echo "=== capture-record format tests (SYNTHETIC fixtures) ==="
+	python3 tests/test_capture_record.py
+	@echo "=== CAPTURE-RECORD CHECK: PASS ==="
+
+# ========================================================================
 # QEMU Kernel (runtime test) - separate from M1 payload
 # ========================================================================
 
 kernel: $(KERNEL_ELF)
 
-$(BUILD)/start.o: boot/aarch64/start.S | $(BUILD)
-	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -c $< -o $@
+$(BUILD)/start.o: platform/qemu-virt/start.S platform/qemu-virt/qemu_virt_defs.h | $(BUILD)
+	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -I. -c $< -o $@
 
-$(BUILD)/boot_diag.o: arch/aarch64/boot_diag.c arch/aarch64/boot_diag.h | $(BUILD)
+$(BUILD)/boot_diag.o: kernel/boot_diag.c kernel/boot_diag.h kernel/console.h | $(BUILD)
 	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -Wa,--noexecstack -c $< -o $@
+
+$(BUILD)/console.o: kernel/console.c kernel/console.h | $(BUILD)
+	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -c $< -o $@
 
 $(BUILD)/vectors.o: arch/aarch64/vectors.S arch/aarch64/vectors_defs.h | $(BUILD)
 	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -c $< -o $@
 
-$(BUILD)/uart_pl011.o: arch/aarch64/uart_pl011.S | $(BUILD)
-	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -c $< -o $@
+$(BUILD)/uart_pl011.o: platform/qemu-virt/uart_pl011.S platform/qemu-virt/qemu_virt_defs.h | $(BUILD)
+	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -I. -c $< -o $@
 
-$(BUILD)/main.o: kernel/main.c arch/aarch64/boot_diag.h | $(BUILD)
+$(BUILD)/main.o: kernel/main.c kernel/boot_diag.h kernel/console.h platform/platform.h | $(BUILD)
 	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -Wa,--noexecstack -I. -c $< -o $@
 
+# Platform boundary (M6): selection glue + the ONLY concrete descriptor
+# (qemu-virt). platform/apple/a8/iphone6.c is intentionally NOT linked.
+$(BUILD)/platform.o: platform/platform.c platform/platform.h \
+                     platform/qemu-virt/qemu_virt.h | $(BUILD)
+	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -I. -c $< -o $@
+
+$(BUILD)/qemu_virt.o: platform/qemu-virt/qemu_virt.c platform/qemu-virt/qemu_virt.h \
+                      platform/platform.h | $(BUILD)
+	$(CROSS_CC) $(KERNEL_CROSSFLAGS) -I. -c $< -o $@
+
 $(KERNEL_ELF): $(BUILD)/start.o $(BUILD)/boot_diag.o $(BUILD)/vectors.o \
-               $(BUILD)/uart_pl011.o $(BUILD)/main.o boot/aarch64/kernel.ld
-	$(CROSS_LD) -T boot/aarch64/kernel.ld --build-id=none -z noexecstack -o $@ \
+               $(BUILD)/uart_pl011.o $(BUILD)/main.o $(BUILD)/platform.o \
+               $(BUILD)/qemu_virt.o $(BUILD)/console.o platform/qemu-virt/kernel.ld
+	$(CROSS_LD) -T platform/qemu-virt/kernel.ld --build-id=none -z noexecstack -o $@ \
 		$(BUILD)/start.o $(BUILD)/boot_diag.o $(BUILD)/vectors.o \
-		$(BUILD)/uart_pl011.o $(BUILD)/main.o
+		$(BUILD)/uart_pl011.o $(BUILD)/main.o $(BUILD)/platform.o \
+		$(BUILD)/qemu_virt.o $(BUILD)/console.o
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	$(CROSS_OBJCOPY) -O binary $< $@
@@ -285,6 +545,10 @@ qemu: kernel
 		echo "QEMU exited with code $$EXIT_CODE"; \
 	fi; \
 	if grep -q "MYOS_KERNEL_PASS" /tmp/qemu_output.log; then \
+		if grep -q "DBG: console NULL" /tmp/qemu_output.log; then \
+			echo "=== QEMU TEST: FAIL (false console-ready failure reported) ==="; \
+			exit 1; \
+		fi; \
 		echo "=== QEMU TEST: PASS ==="; \
 		exit 0; \
 	else \
@@ -338,6 +602,27 @@ host-test-all:
 	else echo "=== HOST-TEST-ALL: FAIL ==="; exit 1; fi
 
 .PHONY: host-test-all
+
+# ========================================================================
+# Artifact-integrity checkers (host-side, READ-ONLY, OFFLINE).
+#   check_build_integrity.py : verifies every linked build artifact against
+#                              the linker scripts and Makefile variables
+#                              (ELF format, entry points, section addresses,
+#                              freestanding-ness, size bounds, probe magic).
+#   check_pongo_probe.py     : PongoOS probe source/layout invariants
+#                              (report offsets, magic, no stack/branch use).
+# Both are READ-ONLY: they verify existing artifacts and never rebuild or
+# modify them; a missing artifact FAILS with the concrete file name.
+# They are intentionally NOT part of host-test-all, which must run on a
+# bare tree without any compiled artifacts.
+# ========================================================================
+
+integrity-check:
+	python3 tests/check_build_integrity.py
+	python3 tests/check_pongo_probe.py
+	@echo "=== INTEGRITY-CHECK: PASS ==="
+
+.PHONY: integrity-check
 
 # ========================================================================
 # M2 Kernel Image Format Check (host-side, no device required)

@@ -20,17 +20,34 @@ echo "== offline M1 checks =="
 [ -s "$BUILD/myos_m1.elf" ] && pass size_elf     || failchk size_elf
 [ -x "$BUILD/m1ctl" ]       && pass size_m1ctl   || failchk size_m1ctl
 
-# --- 2. flat binary: 4-byte aligned, within exec-block budget (0x800-0x50)
+# --- 2. flat binary: 4-byte aligned, within the single-command-block budget
+# The budget is derived from the authoritative header constants (never a
+# hard-coded number): payload max = M1_DFU_MAX_XFER - M1_EXEC_HEADER_LEN.
+hdr_file=platform/apple/a8/m1_a8.h
+max_xfer=$(grep -oE 'define M1_DFU_MAX_XFER[[:space:]]+0x[0-9a-fA-F]+' "$hdr_file" | grep -oE '0x[0-9a-fA-F]+')
+exec_hdr=$(grep -oE 'define M1_EXEC_HEADER_LEN[[:space:]]+0x[0-9a-fA-F]+' "$hdr_file" | grep -oE '0x[0-9a-fA-F]+')
+budget=$(( max_xfer - exec_hdr ))
 sz=$(stat -c %s "$BUILD/myos_m1.bin")
 if [ $((sz % 4)) -eq 0 ]; then pass align4; else failchk align4; fi
-if [ "$sz" -ge 16 ] && [ "$sz" -le 2016 ]; then pass fits_dfu; else failchk fits_dfu; fi
-echo "payload_size=$sz bytes (budget: 2016)"
+if [ "$sz" -ge 16 ] && [ "$sz" -le "$budget" ]; then pass fits_dfu; else failchk fits_dfu; fi
+echo "payload_size=$sz bytes (budget: $budget = M1_DFU_MAX_XFER($max_xfer) - M1_EXEC_HEADER_LEN($exec_hdr))"
+# The header must define the single source of truth for that limit.
+grep -q 'define M1_MAX_PAYLOAD[[:space:]]*(M1_DFU_MAX_XFER - M1_EXEC_HEADER_LEN)' "$hdr_file" \
+  && pass budget_define || failchk budget_define
 
 # --- 3. ELF class / machine / entry point
 hdr=$(${X}readelf -h "$BUILD/myos_m1.elf")
 echo "$hdr" | grep -q "Class:.*ELF64"                    && pass class64  || failchk class64
 echo "$hdr" | grep -q "AArch64"                          && pass machine  || failchk machine
 echo "$hdr" | grep -q "Entry point address: *0x180380050" && pass entry_addr || failchk entry_addr
+
+# --- 3b. entry address is derived consistently from the header and m1.ld
+img_base=$(grep -oE 'define M1_IMG_BUF_BASE[[:space:]]+0x[0-9a-fA-F]+' "$hdr_file" | grep -oE '0x[0-9a-fA-F]+')
+entry_off=$(grep -oE 'define M1_ENTRY_OFF[[:space:]]+0x[0-9a-fA-F]+' "$hdr_file" | grep -oE '0x[0-9a-fA-F]+')
+entry_expect=$(printf '0x%x' $(( img_base + entry_off )))
+if [ "$entry_expect" = "0x180380050" ]; then pass entry_header; else failchk entry_header; fi
+grep -q "\. = 0x180380050;" platform/apple/a8/m1.ld && pass entry_ld || failchk entry_ld
+if echo "$hdr" | grep -q "Entry point address: *$entry_expect"; then pass entry_consistent; else failchk entry_consistent; fi
 
 # --- 4. symbols: entry defined (T), zero undefined symbols
 syms=$(${X}nm "$BUILD/myos_m1.elf")
@@ -46,6 +63,28 @@ if ${X}readelf -S "$BUILD/myos_m1.elf" | grep -qE '\.(interp|dynamic|got)'; then
   failchk no_dynamic_sections
 else
   pass no_dynamic_sections
+fi
+
+# --- 5c. register discipline: x0/x1 (block base + challenge) must be saved to
+# the stack before the first call, and the challenge reloaded for the return
+# value. The boot_diag_* calls may clobber any caller-saved register (AAPCS),
+# so holding the base/challenge in x9/x10 across a `bl` would be a latent bug.
+entry_asm=$(${X}objdump -d --start-address=0x180380050 --stop-address=0x1803800d0 "$BUILD/myos_m1.elf")
+prologue=$(printf '%s\n' "$entry_asm" | awk '/[[:space:]]bl[[:space:]]/{exit} {print}')
+if printf '%s\n' "$prologue" | grep -Eq 'stp[[:space:]]+x[0-9]+, x[0-9]+, \[sp, #-16\]!'; then
+  pass entry_saves_x0x1
+else
+  failchk entry_saves_x0x1
+fi
+if printf '%s\n' "$entry_asm" | grep -Eq 'ldr[[:space:]]+x10, \[sp, #8\]'; then
+  pass entry_reloads_challenge
+else
+  failchk entry_reloads_challenge
+fi
+if printf '%s\n' "$entry_asm" | grep -Eq 'add[[:space:]]+sp, sp, #0x10'; then
+  pass entry_restores_sp
+else
+  failchk entry_restores_sp
 fi
 
 # --- 6. marker bytes present in flat binary

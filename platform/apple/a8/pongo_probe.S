@@ -50,7 +50,7 @@
  *   +0x58  u64 reserved_zero (always 0)
  *   Report block lives at file offset RPT_OFF (0x200) in .report;
  *   entry code lives at file offset 0 in .text.probe.
- *   EL-guarding pattern follows boot/aarch64/m1_entry.S:60-81
+ *   EL-guarding pattern follows platform/apple/a8/m1_entry.S:60-81
  *   (MIDR/timer reads only at EL1; CurrentEL read is safe anywhere).
  *
  * --- Parking ---

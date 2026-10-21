@@ -46,4 +46,14 @@
 
 #define M1_DFU_MAX_XFER     0x800
 
+/*
+ * Maximum payload bytes that fit after the 80-byte exec header in a SINGLE
+ * DFU command block (0x800 - 0x50 = 1968). m1ctl builds the block as
+ * [80-byte header][payload] and delivers it in 0x800-byte DNLOAD chunks; a
+ * command block spanning more than one chunk has never been exercised against
+ * the device-side handler, so the single-block capacity is the supported
+ * limit. A payload larger than this MUST be rejected, never truncated.
+ */
+#define M1_MAX_PAYLOAD      (M1_DFU_MAX_XFER - M1_EXEC_HEADER_LEN)
+
 #endif /* MYOS_PLATFORM_APPLE_A8_M1_A8_H */

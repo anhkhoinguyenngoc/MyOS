@@ -33,6 +33,7 @@
 #include <time.h>
 
 #include "../../platform/apple/a8/m1_a8.h"
+#include "m1_proto.h"
 
 #define DFU_DNLOAD      1
 #define DFU_GETSTATUS   3
@@ -151,11 +152,10 @@ static int cmd_memc(void) {
     /* no-op memcpy: dst = src = image buffer + 0x10, len 8 — proves the
      * device-side handler executes the memc path and answers with DONE. */
     uint8_t req[40] = {0};
-    uint64_t *q = (uint64_t *)req;
-    q[0] = M1_MEMC_MAGIC;
-    q[2] = M1_IMG_BUF_BASE + 0x10;   /* x0 dst */
-    q[3] = M1_IMG_BUF_BASE + 0x10;   /* x1 src */
-    q[4] = 8;                        /* x2 len */
+    m1_wr64le(req + 0,  M1_MEMC_MAGIC);
+    m1_wr64le(req + 16, M1_IMG_BUF_BASE + 0x10);   /* x0 dst */
+    m1_wr64le(req + 24, M1_IMG_BUF_BASE + 0x10);   /* x1 src */
+    m1_wr64le(req + 32, 8);                        /* x2 len */
 
     uint8_t resp[32] = {0};
     int rc = command(h, req, sizeof(req), resp, sizeof(resp));
@@ -163,8 +163,8 @@ static int cmd_memc(void) {
     if (rc != 0) return 1;
 
     hexdump("memc response", resp, sizeof(resp));
-    uint64_t done = *(uint64_t *)(resp + 0);
-    uint64_t dst  = *(uint64_t *)(resp + 8);
+    uint64_t done = m1_rd64le(resp + 0);
+    uint64_t dst  = m1_rd64le(resp + 8);
     if (done == M1_DONE_MAGIC && dst == M1_IMG_BUF_BASE + 0x10) {
         printf("MEMC: HANDLER_LIVE (DONE_MAGIC + dst round-trip OK)\n");
         return 0;
@@ -174,46 +174,67 @@ static int cmd_memc(void) {
 }
 
 static int cmd_exec(void) {
-    /* load the MyOS payload from disk and append it to the exec header */
+    /* load the MyOS payload from disk; the exec header is prepended below */
     const char *path = "build/myos_m1.bin";
-    FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "m1ctl: cannot open %s (run from project root after `make payload`)\n", path); return 1; }
-    uint8_t blob[M1_DFU_MAX_XFER] = {0};
-    size_t blob_len = fread(blob + M1_EXEC_HEADER_LEN, 1, sizeof(blob) - M1_EXEC_HEADER_LEN, f);
-    fclose(f);
-    if (blob_len == 0 || blob_len + M1_EXEC_HEADER_LEN > M1_DFU_MAX_XFER) {
-        fprintf(stderr, "m1ctl: bad payload size %zu\n", blob_len);
+    uint8_t payload[M1_MAX_PAYLOAD];
+    size_t payload_len = 0;
+    enum m1_payload_status st =
+        m1_load_payload(path, payload, sizeof(payload), &payload_len);
+    if (st != M1_PAYLOAD_OK) {
+        const char *why = "unknown error";
+        switch (st) {
+        case M1_PAYLOAD_ERR_OPEN:
+            why = "cannot open (run from project root after `make payload`)";
+            break;
+        case M1_PAYLOAD_ERR_EMPTY:
+            why = "empty file";
+            break;
+        case M1_PAYLOAD_ERR_TOO_LARGE:
+            why = "too large for one DFU command block (would be truncated)";
+            break;
+        case M1_PAYLOAD_ERR_READ:
+            why = "read error";
+            break;
+        default:
+            break;
+        }
+        fprintf(stderr, "m1ctl: bad payload %s: %s (limit %u bytes)\n",
+                path, why, (unsigned)M1_MAX_PAYLOAD);
         return 1;
     }
 
     /* build exec command block: [magic][pc][x0..x7] + appended payload bytes */
-    uint64_t *q = (uint64_t *)blob;
-    q[0] = M1_EXEC_MAGIC;
-    q[1] = M1_ENTRY_ADDR;        /* pc = myos_m1_entry */
-    q[2] = M1_IMG_BUF_BASE;      /* x0 = block base    */
-    q[3] = M1_CHALLENGE;         /* x1 = challenge     */
-    q[4] = q[5] = q[6] = q[7] = q[8] = 0; /* x2..x7 = 0 */
+    uint8_t blob[M1_EXEC_HEADER_LEN + M1_MAX_PAYLOAD];
+    size_t block_len = m1_build_exec_block(blob, sizeof(blob), M1_EXEC_MAGIC,
+                                           M1_ENTRY_ADDR, M1_IMG_BUF_BASE,
+                                           M1_CHALLENGE, payload, payload_len);
+    if (block_len == 0) {
+        fprintf(stderr, "m1ctl: failed to build exec block (%zu payload)\n",
+                payload_len);
+        return 1;
+    }
 
     printf("exec: entry=0x%llx block=%zu bytes (80-byte header + %zu payload)\n",
-           (unsigned long long)M1_ENTRY_ADDR, M1_EXEC_HEADER_LEN + blob_len, blob_len);
+           (unsigned long long)M1_ENTRY_ADDR, block_len, payload_len);
 
     libusb_device_handle *h = open_dfu();
     if (!h) return 1;
     uint8_t resp[M1_RESP_LEN] = {0};
-    int rc = command(h, blob, M1_EXEC_HEADER_LEN + blob_len, resp, sizeof(resp));
+    int rc = command(h, blob, block_len, resp, sizeof(resp));
     libusb_close(h);
     if (rc != 0) return 1;
 
     hexdump("exec response", resp, sizeof(resp));
 
-    uint64_t done    = *(uint64_t *)(resp + 0x00);
-    uint64_t retval  = *(uint64_t *)(resp + 0x08);
-    uint64_t cur_el  = *(uint64_t *)(resp + M1_SLOT_CURRENTEL);
-    uint64_t midr    = *(uint64_t *)(resp + M1_SLOT_MIDR);
-    uint64_t marker  = *(uint64_t *)(resp + M1_SLOT_MARKER);
-    uint64_t echo    = *(uint64_t *)(resp + M1_SLOT_ECHO);
-    uint64_t cntfrq  = *(uint64_t *)(resp + M1_SLOT_CNTFRQ);
-    uint64_t cntpct  = *(uint64_t *)(resp + M1_SLOT_CNTPCT);
+    uint64_t done     = m1_rd64le(resp + 0x00);
+    uint64_t retval   = m1_rd64le(resp + 0x08);
+    uint64_t cur_el   = m1_rd64le(resp + M1_SLOT_CURRENTEL);
+    uint64_t midr     = m1_rd64le(resp + M1_SLOT_MIDR);
+    uint64_t marker   = m1_rd64le(resp + M1_SLOT_MARKER);
+    uint64_t echo     = m1_rd64le(resp + M1_SLOT_ECHO);
+    uint64_t cntfrq   = m1_rd64le(resp + M1_SLOT_CNTFRQ);
+    uint64_t cntpct   = m1_rd64le(resp + M1_SLOT_CNTPCT);
+    uint64_t marker_ok = m1_rd64le((const uint8_t *)M1_MARKER_BYTES);
 
     printf("done_magic     = 0x%016llx %s\n", (unsigned long long)done,
            done == M1_DONE_MAGIC ? "OK" : "WRONG");
@@ -225,7 +246,7 @@ static int cmd_exec(void) {
     printf("MIDR_EL1 slot  = 0x%016llx%s\n", (unsigned long long)midr,
            midr ? " (read at EL1)" : " (skipped: not EL1 or 0)");
     printf("marker slot    = 0x%016llx %s\n", (unsigned long long)marker,
-           marker == *(uint64_t *)M1_MARKER_BYTES ? "MYOSM1OK OK" : "WRONG");
+           marker == marker_ok ? "MYOSM1OK OK" : "WRONG");
     printf("echo slot      = 0x%016llx %s\n", (unsigned long long)echo,
            echo == M1_CHALLENGE ? "OK" : "WRONG");
     printf("CNTFRQ_EL0     = 0x%016llx\n", (unsigned long long)cntfrq);
@@ -234,7 +255,7 @@ static int cmd_exec(void) {
     int pass = (done == M1_DONE_MAGIC) &&
                (retval == ~M1_CHALLENGE) &&
                (cur_el == 0x4 || cur_el == 0x8 || cur_el == 0xC) &&
-               (marker == *(uint64_t *)M1_MARKER_BYTES) &&
+               (marker == marker_ok) &&
                (echo == M1_CHALLENGE);
     printf("M1_VERDICT: %s\n", pass ? "PASS" : "FAIL");
     printf("PASS means: evidence demonstrates instruction execution reached "

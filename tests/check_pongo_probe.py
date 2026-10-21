@@ -33,8 +33,8 @@ REPO = sys.argv[sys.argv.index("--repo") + 1] \
     if "--repo" in sys.argv else os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))
 
-PROBE_S = os.path.join(REPO, "boot", "aarch64", "pongo_probe.S")
-PROBE_LD = os.path.join(REPO, "boot", "aarch64", "pongo_probe.ld")
+PROBE_S = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.S")
+PROBE_LD = os.path.join(REPO, "platform", "apple", "a8", "pongo_probe.ld")
 PROBE_BIN = os.path.join(REPO, "build", "pongo_probe.bin")
 
 EXPECTED_MAGIC = b"MP1PRB01"
@@ -60,8 +60,8 @@ def main():
     # 1. Files exist; QEMU path intact.
     check("probe assembly exists", os.path.isfile(PROBE_S), PROBE_S)
     check("probe linker script exists", os.path.isfile(PROBE_LD), PROBE_LD)
-    for keep in ("boot/aarch64/start.S", "boot/aarch64/kernel.ld",
-                 "boot/aarch64/m1_entry.S", "kernel/main.c"):
+    for keep in ("platform/qemu-virt/start.S", "platform/qemu-virt/kernel.ld",
+                 "platform/apple/a8/m1_entry.S", "kernel/main.c"):
         check("QEMU/M1 path intact: " + keep,
               os.path.isfile(os.path.join(REPO, keep)), keep)
     if FAILURES:

@@ -1,17 +1,21 @@
 /*
- * arch/aarch64/boot_diag.h — Boot Diagnostic Framework for MyOS
+ * kernel/boot_diag.h — Boot Diagnostic Framework for MyOS
  *
- * target: iphone6 (Apple A8 real hardware) AND qemu-virt (tests)
+ * target: target-independent framework (no MMIO of its own). Platform code
+ *         supplies the console: QEMU virt PL011 is the only implementation in
+ *         this repository; the iPhone 6 console is not implemented.
  *
  * Purpose: make boot failures observable and diagnosable by reporting
  * EXACTLY which boot stage and subsystem failed, with stable machine-readable
  * error codes. No dynamic allocation; usable from the first instruction.
  *
  * Design: freestanding, allocation-free, deterministic, architecture-conscious.
+ * This is a core kernel service; the arch exception entry vector (vectors.S)
+ * calls into it, and it never touches a machine-specific address itself.
  */
 
-#ifndef MYOS_ARCH_AARCH64_BOOT_DIAG_H
-#define MYOS_ARCH_AARCH64_BOOT_DIAG_H
+#ifndef MYOS_KERNEL_BOOT_DIAG_H
+#define MYOS_KERNEL_BOOT_DIAG_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -201,50 +205,16 @@ typedef struct {
 boot_stage_t boot_diag_get_current_stage(void);
 
 /* ========================================================================
- * CONSOLE ABSTRACTION
+ * CONSOLE BOUNDARY
  *
- * Minimal console interface. Implementation provided by platform code
- * (UART/USB for iphone6, PL011 for qemu-virt).
+ * The kernel console abstraction (struct boot_console, boot_console_register,
+ * kconsole_* and kconsole_ready) is defined in kernel/console.h. Platform
+ * backends provide the implementation; diagnostics and the core emit only
+ * through that interface. Output before a backend is registered is a safe
+ * no-op, so diagnostics may be called from the earliest boot code.
  * ======================================================================== */
 
-struct boot_console;
-
-/* Console operations */
-typedef struct {
-    /* Initialize console hardware. Returns 0 on success, error code on failure. */
-    int (*init)(struct boot_console *console);
-
-    /* Write a single character. Returns 0 on success. */
-    int (*putc)(struct boot_console *console, char c);
-
-    /* Write a string. Returns number of characters written, or error. */
-    int (*puts)(struct boot_console *console, const char *s);
-
-    /* Write a buffer. Returns number of bytes written, or error. */
-    int (*write)(struct boot_console *console, const void *buf, size_t len);
-
-    /* Flush any buffered output. */
-    void (*flush)(struct boot_console *console);
-
-    /* Platform-specific data */
-    void *platform_data;
-} boot_console_ops_t;
-
-struct boot_console {
-    const boot_console_ops_t *ops;
-    void *platform_data;
-};
-
-/* Global console instance (initialized by platform code) */
-extern struct boot_console *boot_console;
-
-/* Register a console instance (called by platform UART driver) */
-void boot_console_register(struct boot_console *console);
-
-/* Convenience macros */
-#define diag_puts(s)    do { if (boot_console) boot_console->ops->puts(boot_console, s); } while(0)
-#define diag_putc(c)    do { if (boot_console) boot_console->ops->putc(boot_console, c); } while(0)
-#define diag_write(b,l) do { if (boot_console) boot_console->ops->write(boot_console, b, l); } while(0)
+#include "console.h"
 
 /* ========================================================================
  * EXCEPTION HANDLING INTEGRATION
@@ -394,4 +364,4 @@ size_t boot_diag_format_error(char *buf, size_t bufsz, boot_error_t error);
 /* Validate diagnostic state magic/version */
 int boot_diag_state_valid(const boot_diag_state_t *state);
 
-#endif /* MYOS_ARCH_AARCH64_BOOT_DIAG_H */
+#endif /* MYOS_KERNEL_BOOT_DIAG_H */
