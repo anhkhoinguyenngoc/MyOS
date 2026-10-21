@@ -5,9 +5,12 @@
  *         [NOT qemu-virt; NOT SecureROM-DFU exec]
  *
  * Entered by myos_a8_raw_entry (raw_entry.S) on the image-owned stack with
- * x0 = boot_args (raw pointer — recorded, never dereferenced). Runtime
+ * x0 = boot_args (raw pointer — recorded; dereferenced only by the explicit
+ * opt-in display demo below). Runtime
  * preconditions (source-verified, M7.10 report section): EL1, MMU off,
- * D-cache off, DAIF masked; VBAR_EL1 is still PongoOS's vector table.
+ * D-cache off, DAIF masked. The trampoline inserts the image's own vector
+ * table into VBAR_EL1 before entering this function (raw_entry.S:57-59); the
+ * inherited PongoOS table is only what a fault would use before that msr.
  *
  * This function records entry evidence into the file-backed report block at
  * file offset 0x200 (its static part — magic/version/size — is verifiable in
@@ -16,12 +19,29 @@
  * unknown and TWE could trap; a branch loop cannot fault (same reasoning as
  * pongo_probe.S).
  *
- * No console, no MMIO, no MMU/cache/interrupt changes, no hardware address.
+ * Default build: no console, no display/controller MMIO, no
+ * MMU/cache/interrupt changes, no hardware address. The explicit opt-in demo
+ * below instead writes only the inherited framebuffer pixels.
  * The report layout mirrors the M-P1 probe convention (magic/version/size
  * header + u64 fields); the offsets are pinned here and cross-checked by
  * tests/test_a8_raw_entry.py against raw_entry.ld and the built image.
+ *
+ * Optional display demo (MYOS_A8_RENDER_HELLO=1): after the report block is
+ * complete, draw "Hello User" into the inherited boot_args Video framebuffer.
+ * This is DEFAULT-OFF: the actual boot_args/Video values and scanout are not
+ * observed, and the production image must keep its audited no-dereference
+ * property. Static source trace is consistent with the raw image receiving
+ * the identity/physical view (pongo_entry passes gBootArgs unchanged into the
+ * MMU-off jump; only the XNU path uses kCacheableView), but it does not prove
+ * the actual pointer value; the demo remains a
+ * separate, opt-in image (`make raw-entry-hello`) and is never part of
+ * build/raw_entry.bin.
  */
 #include <stdint.h>
+
+#if defined(MYOS_A8_RENDER_HELLO) && MYOS_A8_RENDER_HELLO
+#include "platform/apple/a8/a8_fb.h"
+#endif
 
 #define RAW_REPORT_SIZE 0x40u
 
@@ -86,6 +106,21 @@ void myos_a8_raw_main(uint64_t boot_args)
     raw_entry_report.stack_bottom = bottom;
     raw_entry_report.stack_top = top;
     raw_entry_report.stack_checks = checks;
+
+#if defined(MYOS_A8_RENDER_HELLO) && MYOS_A8_RENDER_HELLO
+    /*
+     * Opt-in only. The adapter performs no display initialization: it reads
+     * the six Video words from boot_args and, only if the geometry passes
+     * every check, fills a black box and draws "Hello User". Any fault here
+     * is captured by raw_vectors.S (the report above is already complete).
+     *
+     * reserved slot (+0x38) now holds demo status code:
+     *   0 = MYOS_A8_FB_OK
+     *   non-zero = error code from myos_a8_fb_status_t enum
+     * This is a diagnostic for physical validation; not used in production.
+     */
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_hello(boot_args, NULL);
+#endif
 
     for (;;)
     {
