@@ -41,6 +41,18 @@
 
 #if defined(MYOS_A8_RENDER_HELLO) && MYOS_A8_RENDER_HELLO
 #include "platform/apple/a8/a8_fb.h"
+#if defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
+myos_a8_fb_status_t myos_a8_fb_draw_minimal_red(uint64_t boot_args);
+#endif
+#if defined(MYOS_A8_DIAGNOSTIC) && MYOS_A8_DIAGNOSTIC
+myos_a8_fb_status_t myos_a8_fb_draw_diagnostic(uint64_t boot_args);
+#endif
+#if defined(MYOS_A8_DIAGNOSTIC_V2) && MYOS_A8_DIAGNOSTIC_V2
+myos_a8_fb_status_t myos_a8_fb_draw_diagnostic_v2(uint64_t boot_args);
+#endif
+#if defined(MYOS_A8_DIAGNOSTIC_V3) && MYOS_A8_DIAGNOSTIC_V3
+myos_a8_fb_status_t myos_a8_fb_draw_diagnostic_v3(uint64_t boot_args);
+#endif
 #endif
 
 #define RAW_REPORT_SIZE 0x40u
@@ -119,7 +131,17 @@ void myos_a8_raw_main(uint64_t boot_args)
      *   non-zero = error code from myos_a8_fb_status_t enum
      * This is a diagnostic for physical validation; not used in production.
      */
+#if defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_minimal_red(boot_args);
+#elif defined(MYOS_A8_DIAGNOSTIC_V3) && MYOS_A8_DIAGNOSTIC_V3
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_diagnostic_v3(boot_args);
+#elif defined(MYOS_A8_DIAGNOSTIC_V2) && MYOS_A8_DIAGNOSTIC_V2
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_diagnostic_v2(boot_args);
+#elif defined(MYOS_A8_DIAGNOSTIC) && MYOS_A8_DIAGNOSTIC
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_diagnostic(boot_args);
+#else
     raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_hello(boot_args, NULL);
+#endif
 #endif
 
     for (;;)

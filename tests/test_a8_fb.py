@@ -13,7 +13,7 @@ Covers:
     oversized width/height, short/misaligned/oversized stride, and
     stride*height range overflow;
   * failure paths zero the output descriptor;
-  * "Hello User" is centred, scale 4, white on black;
+  * "Hello User" is centred, scale 3, white on a full-screen black background;
   * a too-small or invalid framebuffer draws nothing;
   * canary bytes outside the declared framebuffer are never touched.
 
@@ -213,15 +213,15 @@ static void test_draw_hello(void)
     CHECK("draw hello accepted",
           myos_a8_fb_draw_hello(ba, &pixels) == MYOS_A8_FB_OK);
     CHECK("draw hello wrote pixels", pixels > 0u);
-    CHECK("draw hello full-string pixel count", pixels == 2656u);
-    CHECK("draw hello centring row blank", px(40, 104) == MYOS_FB_BLACK);
-    CHECK("draw hello glyph H white", px(44, 108) == MYOS_FB_WHITE);
-    CHECK("draw hello scale-4 block", px(47, 111) == MYOS_FB_WHITE);
+    CHECK("draw hello full-string pixel count", pixels == 1494u);
+    CHECK("draw hello centring row blank", px(80, 108) == MYOS_FB_BLACK);
+    CHECK("draw hello glyph H white", px(83, 111) == MYOS_FB_WHITE);
+    CHECK("draw hello scale-3 block", px(85, 113) == MYOS_FB_WHITE);
     CHECK("draw hello space cell black", px(200, 108) == MYOS_FB_BLACK);
-    CHECK("draw hello outside box untouched", px(0, 0) == 0x33333333u);
-    CHECK("draw hello bottom-right untouched", px(399, 239) == 0x33333333u);
+    CHECK("draw hello full-screen background black", px(0, 0) == MYOS_FB_BLACK);
+    CHECK("draw hello bottom-right black", px(399, 239) == MYOS_FB_BLACK);
     CHECK("draw hello guards intact", guards_ok());
-    CHECK("draw hello black box row blank", px(41, 105) == MYOS_FB_BLACK);
+    CHECK("draw hello glyph top margin black", px(83, 108) == MYOS_FB_BLACK);
 
     reset_fb();
     set_video(base, 100, 20, 400, 32, 1);

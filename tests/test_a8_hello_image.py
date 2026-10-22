@@ -39,7 +39,7 @@ BIN = os.path.join(ROOT, "build", "raw_entry_hello.bin")
 PROD = os.path.join(ROOT, "build", "raw_entry.bin")
 PROD_ELF = os.path.join(ROOT, "build", "raw_entry.elf")
 MAKEFILE = os.path.join(ROOT, "Makefile")
-PROD_SHA = "0eb3af057a6ba82ad55c114d0a0056c1d3cea686375f535c813ba25b2cd8c635"
+PROD_SHA = "762d92db7fbd99cc418fb73c25bf076edeb542eeec1bae3b1af08ee456f2e3f2"
 
 # Handoff-critical addresses.  These are deliberately exact: changing them
 # changes the image's boot/display contract.  `.code` is only required to be

@@ -48,10 +48,18 @@ SECTIONS
         KEEP(*(.excrecord))
     }
     /* Renderer + adapter + font: never executed before the owned stack and
-     * vector table are active. */
+     * vector table are active. Keep raw_main at the .code entry contract,
+     * then place all read-only data before the rest of the code so the font
+     * and string cannot land in the disposable image tail. The final 0x200
+     * bytes are padding: a short final upload/DMA window may drop them
+     * without touching executable code or glyph data. */
     .code ALIGN(16) : {
-        *(.text*)
+        KEEP(*(.text.myos_a8_raw_main))
+        *(.rodata.early)
         *(.rodata*)
+        *(.text*)
+        . = ALIGN(16);
+        . += 0x200;
     }
     .data ALIGN(16) : {
         *(.data*)

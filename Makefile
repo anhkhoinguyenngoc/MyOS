@@ -44,7 +44,8 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -Wall -Wextra -mgeneral-regs-only $(PLATFORM_DEFS)
 
 .PHONY: all payload m1ctl kernel probe raw-entry raw-entry-check \
-        raw-entry-hello raw-entry-hello-check \
+        raw-entry-hello raw-entry-hello-check raw-entry-red \
+        raw-entry-diag raw-entry-diag2 raw-entry-diag3 \
         qemu offline test clean \
         usb-watch usb-watch-test usb-watch-check pongo-addr-check \
         pongo-artifact-check regs-output-check \
@@ -198,18 +199,18 @@ $(RAW_HELLO_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_DIR)
 
 $(RAW_HELLO_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
                              platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_DIR)
-	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
 		-DMYOS_A8_RENDER_HELLO=1 -I. -c $< -o $@
 
 $(RAW_HELLO_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_DIR)
 	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
 
 $(RAW_HELLO_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_DIR)
-	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
 
 $(RAW_HELLO_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
                           kernel/fb_text.h | $(RAW_HELLO_DIR)
-	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
 
 $(RAW_HELLO_DIR):
 	@mkdir -p $@
@@ -228,6 +229,164 @@ $(RAW_HELLO_BIN): $(RAW_HELLO_ELF)
 raw-entry-hello-check: $(RAW_HELLO_BIN) $(RAW_BIN)
 	python3 tests/test_a8_hello_image.py --require-artifact
 	@echo "=== RAW-ENTRY-HELLO CHECK: PASS (layout + opt-in call path) ==="
+
+RAW_RED_ELF := $(BUILD)/raw_entry_red.elf
+RAW_RED_BIN := $(BUILD)/raw_entry_red.bin
+RAW_RED_DIR := $(BUILD)/raw_entry-red
+
+raw-entry-red: $(RAW_RED_BIN)
+	@echo "=== RAW-ENTRY-RED: built $(RAW_RED_BIN) (minimal layout test; not production) ==="
+
+$(RAW_RED_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_RED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_RED_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                           platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_RED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_RED_TEST=1 -I. -c $< -o $@
+
+$(RAW_RED_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_RED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_RED_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                        kernel/fb_text.h | $(RAW_RED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-fdata-sections -fno-jump-tables -DMYOS_A8_RED_TEST=1 \
+		-I. -c $< -o $@
+
+$(RAW_RED_DIR):
+	@mkdir -p $@
+
+$(RAW_RED_ELF): $(RAW_RED_DIR)/raw_entry.o $(RAW_RED_DIR)/raw_main.o \
+                $(RAW_RED_DIR)/raw_vectors.o $(RAW_RED_DIR)/a8_fb.o \
+                platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --gc-sections \
+		--build-id=none -o $@ \
+		$(RAW_RED_DIR)/raw_entry.o $(RAW_RED_DIR)/raw_main.o \
+		$(RAW_RED_DIR)/raw_vectors.o $(RAW_RED_DIR)/a8_fb.o
+
+$(RAW_RED_BIN): $(RAW_RED_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_DIAG_ELF := $(BUILD)/raw_entry_diag.elf
+RAW_DIAG_BIN := $(BUILD)/raw_entry_diag.bin
+RAW_DIAG_DIR := $(BUILD)/raw_entry-diag
+
+raw-entry-diag: $(RAW_DIAG_BIN)
+	@echo "=== RAW-ENTRY-DIAG: built $(RAW_DIAG_BIN) (diagnostic; not production) ==="
+
+$(RAW_DIAG_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_DIAG_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                             platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_DIAGNOSTIC=1 -I. -c $< -o $@
+
+$(RAW_DIAG_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_DIAG_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+
+$(RAW_DIAG_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                          kernel/fb_text.h | $(RAW_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_DIAGNOSTIC=1 -I. -c $< -o $@
+
+$(RAW_DIAG_DIR):
+	@mkdir -p $@
+
+$(RAW_DIAG_ELF): $(RAW_DIAG_DIR)/raw_entry.o $(RAW_DIAG_DIR)/raw_main.o \
+                  $(RAW_DIAG_DIR)/raw_vectors.o $(RAW_DIAG_DIR)/fb_text.o \
+                  $(RAW_DIAG_DIR)/a8_fb.o platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_DIAG_DIR)/raw_entry.o $(RAW_DIAG_DIR)/raw_main.o \
+		$(RAW_DIAG_DIR)/raw_vectors.o $(RAW_DIAG_DIR)/fb_text.o \
+		$(RAW_DIAG_DIR)/a8_fb.o
+
+$(RAW_DIAG_BIN): $(RAW_DIAG_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_DIAG2_ELF := $(BUILD)/raw_entry_diag2.elf
+RAW_DIAG2_BIN := $(BUILD)/raw_entry_diag2.bin
+RAW_DIAG2_DIR := $(BUILD)/raw_entry-diag2
+
+raw-entry-diag2: $(RAW_DIAG2_BIN)
+	@echo "=== RAW-ENTRY-DIAG2: built $(RAW_DIAG2_BIN) (diagnostic v2; not production) ==="
+
+$(RAW_DIAG2_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_DIAG2_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_DIAG2_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                             platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_DIAG2_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_DIAGNOSTIC_V2=1 -I. -c $< -o $@
+
+$(RAW_DIAG2_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_DIAG2_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_DIAG2_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_DIAG2_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+
+$(RAW_DIAG2_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                          kernel/fb_text.h | $(RAW_DIAG2_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_DIAGNOSTIC_V2=1 -I. -c $< -o $@
+
+$(RAW_DIAG2_DIR):
+	@mkdir -p $@
+
+$(RAW_DIAG2_ELF): $(RAW_DIAG2_DIR)/raw_entry.o $(RAW_DIAG2_DIR)/raw_main.o \
+                  $(RAW_DIAG2_DIR)/raw_vectors.o $(RAW_DIAG2_DIR)/fb_text.o \
+                  $(RAW_DIAG2_DIR)/a8_fb.o platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_DIAG2_DIR)/raw_entry.o $(RAW_DIAG2_DIR)/raw_main.o \
+		$(RAW_DIAG2_DIR)/raw_vectors.o $(RAW_DIAG2_DIR)/fb_text.o \
+		$(RAW_DIAG2_DIR)/a8_fb.o
+
+$(RAW_DIAG2_BIN): $(RAW_DIAG2_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_DIAG3_ELF := $(BUILD)/raw_entry_diag3.elf
+RAW_DIAG3_BIN := $(BUILD)/raw_entry_diag3.bin
+RAW_DIAG3_DIR := $(BUILD)/raw_entry-diag3
+
+raw-entry-diag3: $(RAW_DIAG3_BIN)
+	@echo "=== RAW-ENTRY-DIAG3: built $(RAW_DIAG3_BIN) (diagnostic v3; not production) ==="
+
+$(RAW_DIAG3_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_DIAG3_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_DIAG3_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                             platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_DIAG3_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_DIAGNOSTIC_V3=1 -I. -c $< -o $@
+
+$(RAW_DIAG3_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_DIAG3_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_DIAG3_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_DIAG3_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+
+$(RAW_DIAG3_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                          kernel/fb_text.h | $(RAW_DIAG3_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_DIAGNOSTIC_V3=1 -I. -c $< -o $@
+
+$(RAW_DIAG3_DIR):
+	@mkdir -p $@
+
+$(RAW_DIAG3_ELF): $(RAW_DIAG3_DIR)/raw_entry.o $(RAW_DIAG3_DIR)/raw_main.o \
+                  $(RAW_DIAG3_DIR)/raw_vectors.o $(RAW_DIAG3_DIR)/fb_text.o \
+                  $(RAW_DIAG3_DIR)/a8_fb.o platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_DIAG3_DIR)/raw_entry.o $(RAW_DIAG3_DIR)/raw_main.o \
+		$(RAW_DIAG3_DIR)/raw_vectors.o $(RAW_DIAG3_DIR)/fb_text.o \
+		$(RAW_DIAG3_DIR)/a8_fb.o
+
+$(RAW_DIAG3_BIN): $(RAW_DIAG3_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
 
 # ========================================================================
 # M7.12 raw-image artifact validation (host-side, OFFLINE, strict).

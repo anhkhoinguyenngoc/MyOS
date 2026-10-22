@@ -20,7 +20,8 @@ typedef struct {
     uint8_t rows[MYOS_FB_FONT_HEIGHT];
 } myos_fb_glyph_t;
 
-static const myos_fb_glyph_t myos_fb_font[] = {
+static const myos_fb_glyph_t myos_fb_font[]
+    __attribute__((section(".rodata.early"))) = {
     { ' ', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } },
     { 'H', { 0x00, 0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00 } },
     { 'U', { 0x00, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00 } },
@@ -219,6 +220,9 @@ myos_fb_status_t myos_fb_draw_text(const myos_fb_t *fb,
 
     for (size_t i = 0; i < chars; i++) {
         const myos_fb_glyph_t *glyph = glyph_for(s[i]);
+        if (glyph == NULL) {
+            return MYOS_FB_ERR_GLYPH;
+        }
         for (uint32_t row = 0; row < MYOS_FB_FONT_HEIGHT; row++) {
             uint8_t bits = glyph->rows[row];
             for (uint32_t col = 0; col < MYOS_FB_FONT_WIDTH; col++) {

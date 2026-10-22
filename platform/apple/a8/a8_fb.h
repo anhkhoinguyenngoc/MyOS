@@ -95,13 +95,18 @@ myos_a8_fb_status_t myos_a8_fb_from_boot_args(uint64_t boot_args,
                                                myos_fb_t *fb);
 
 /*
- * Draw "Hello User" centred in the inherited framebuffer, white on black,
- * scale 4. Returns MYOS_A8_FB_ERR_GEOMETRY without writing anything if the
- * framebuffer is too small for the text. `pixels_written` (optional) receives
- * the number of white foreground pixels stored, or 0 on failure. This is the
- * complete opt-in demo; it performs no display initialization.
+ * Draw "Hello User" centred in the inherited framebuffer, white on a
+ * full-screen black background, scale 3. Returns MYOS_A8_FB_ERR_GEOMETRY
+ * without writing anything if the framebuffer is too small for the text.
+ * `pixels_written` (optional) receives the number of white foreground pixels
+ * stored, or 0 on failure. This is the complete opt-in demo; it performs no
+ * display initialization.
  */
 myos_a8_fb_status_t myos_a8_fb_draw_hello(uint64_t boot_args,
                                           uint64_t *pixels_written);
+
+#if defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
+myos_a8_fb_status_t myos_a8_fb_draw_minimal_red(uint64_t boot_args);
+#endif
 
 #endif /* MYOS_PLATFORM_APPLE_A8_A8_FB_H */
