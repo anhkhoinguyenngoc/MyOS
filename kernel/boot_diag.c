@@ -14,6 +14,11 @@
 #include "boot_diag.h"
 #include "console.h"
 
+/* vectors.S pushes exactly four context words (ESR/FAR/ELR/SPSR), in this
+ * order. Keep the C view in lockstep with that push. */
+_Static_assert(sizeof(exception_context_t) == 4u * sizeof(uint64_t),
+               "exception_context_t must match the vector context push");
+
 /* ========================================================================
  * GLOBAL STATE
  * ======================================================================== */

@@ -44,6 +44,7 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -Wall -Wextra -mgeneral-regs-only $(PLATFORM_DEFS)
 
 .PHONY: all payload m1ctl kernel probe raw-entry raw-entry-check \
+        raw-entry-hello raw-entry-hello-check \
         qemu offline test clean \
         usb-watch usb-watch-test usb-watch-check pongo-addr-check \
         pongo-artifact-check regs-output-check \
@@ -169,6 +170,64 @@ $(RAW_ELF): $(BUILD)/raw_entry.o $(BUILD)/raw_main.o $(BUILD)/raw_vectors.o plat
 
 $(RAW_BIN): $(RAW_ELF)
 	$(CROSS_OBJCOPY) -O binary $< $@
+
+# ========================================================================
+# M7.37 opt-in A8 "Hello User" image (DEFAULT-OFF; not the production image).
+#
+# The production raw_entry.bin above keeps its audited no-boot_args-dereference
+# property and its exact layout. This target builds a SEPARATE image that adds
+# kernel/fb_text.o + platform/apple/a8/a8_fb.o and compiles raw_main.c with
+# -DMYOS_A8_RENDER_HELLO=1, so the renderer runs after the report block is
+# complete. The boot_args pointer view and Video values are not physically
+# observed (the source trace is consistent with the identity/physical view);
+# the demo is an explicit experiment, never part of raw_entry.bin, and its
+# output has not been observed on a device. raw_entry_hello.ld moves the
+# renderer code after the exception record so the handoff-critical offsets
+# (entry 0, report 0x200, stack, vectors, exception record) stay identical.
+# ========================================================================
+
+RAW_HELLO_ELF := $(BUILD)/raw_entry_hello.elf
+RAW_HELLO_BIN := $(BUILD)/raw_entry_hello.bin
+RAW_HELLO_DIR := $(BUILD)/raw_entry-hello
+
+raw-entry-hello: $(RAW_HELLO_BIN)
+	@echo "=== RAW-ENTRY-HELLO: built $(RAW_HELLO_BIN) (OPT-IN demo; not production) ==="
+
+$(RAW_HELLO_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                             platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only \
+		-DMYOS_A8_RENDER_HELLO=1 -I. -c $< -o $@
+
+$(RAW_HELLO_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+
+$(RAW_HELLO_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                          kernel/fb_text.h | $(RAW_HELLO_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -I. -c $< -o $@
+
+$(RAW_HELLO_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_ELF): $(RAW_HELLO_DIR)/raw_entry.o $(RAW_HELLO_DIR)/raw_main.o \
+                  $(RAW_HELLO_DIR)/raw_vectors.o $(RAW_HELLO_DIR)/fb_text.o \
+                  $(RAW_HELLO_DIR)/a8_fb.o platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_DIR)/raw_entry.o $(RAW_HELLO_DIR)/raw_main.o \
+		$(RAW_HELLO_DIR)/raw_vectors.o $(RAW_HELLO_DIR)/fb_text.o \
+		$(RAW_HELLO_DIR)/a8_fb.o
+
+$(RAW_HELLO_BIN): $(RAW_HELLO_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+raw-entry-hello-check: $(RAW_HELLO_BIN) $(RAW_BIN)
+	python3 tests/test_a8_hello_image.py --require-artifact
+	@echo "=== RAW-ENTRY-HELLO CHECK: PASS (layout + opt-in call path) ==="
 
 # ========================================================================
 # M7.12 raw-image artifact validation (host-side, OFFLINE, strict).

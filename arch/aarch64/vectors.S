@@ -108,20 +108,27 @@ vector_serror_el0_32:
  * This macro saves the minimal register set needed for diagnostics
  * and calls boot_diag_exception_handler.
  *
- * Input (expected in registers):
- *   x0 = base_error (subsystem-specific error code)
- *   x1 = exc_class (EXC_CLASS_SYNC/IRQ/FIQ/SERROR)
+ * Input: \class_id = EXC_CLASS_SYNC/IRQ/FIQ/SERROR (macro argument).
+ * The base_error literal (ERR_GENERIC_EXCEPTION) is loaded from the shared
+ * literal pool inside the macro.
  *
  * This macro will:
  *   - Save caller-saved registers
  *   - Capture ESR_EL1/FAR_EL1/ELR_EL1/SPSR_EL1
  *   - Load current boot stage from diag_state
- *   - Call boot_diag_exception_handler (never returns)
+ *   - Marshal the report arguments and call boot_diag_exception_handler
+ *     (never returns)
+ *
+ * Argument marshalling order (M7.35 finding V1): boot_diag_get_current_stage
+ * is a C function that returns the stage in x0 and may clobber every
+ * caller-saved register (AAPCS). It therefore runs AFTER the register save
+ * and BEFORE x0/x1/x2/x3 are set, so base_error/exc_class reach
+ * boot_diag_exception_handler unclobbered.
  *
  * Note: This runs at EL1 with SP_EL0. We must preserve x0-x18, x30.
  * ======================================================================== */
 
-.macro EXCEPTION_ENTRY_COMMON
+.macro EXCEPTION_ENTRY_COMMON class_id
     /* Save caller-saved registers that C code might clobber */
     stp     x0, x1, [sp, #-16]!
     stp     x2, x3, [sp, #-16]!
@@ -147,11 +154,19 @@ vector_serror_el0_32:
     stp     x6, x7, [sp, #-16]!     /* elr_el1, spsr_el1 (upper slots) */
     stp     x4, x5, [sp, #-16]!     /* esr_el1, far_el1 (base slots) */
 
-    /* Load boot stage from diagnostic state */
+    /* Load boot stage from diagnostic state. Runs before the report
+       arguments are marshalled: its return (x0 = stage) and any AAPCS
+       caller-saved clobber must not touch x0-x3 below. */
     bl      boot_diag_get_current_stage
     mov     w4, w0                      /* stage in w4 */
 
-    /* x0 = base_error (already set), x1 = exc_class (already set) */
+    /* Marshal the report arguments AFTER the last call that can clobber
+       them: x0 = base_error (shared literal, via x0 only so no other live
+       register is touched), x1 = exc_class (macro argument), x2 = stage,
+       x3 = pointer to the exception_context_t pushed above. */
+    adrp    x0, err_generic_exception
+    ldr     x0, [x0, #:lo12:err_generic_exception]
+    mov     x1, \class_id               /* exc_class */
     mov     x2, x4                      /* stage */
     mov     x3, sp                      /* exception_context_t at current sp */
 
@@ -164,6 +179,11 @@ vector_serror_el0_32:
 
 /* ========================================================================
  * Exception handlers
+ *
+ * Each handler only supplies its exception class; the shared base_error
+ * literal is loaded inside EXCEPTION_ENTRY_COMMON after the stage getter
+ * call (M7.35 finding V1 — the old pre-macro `adrp x4` preamble also
+ * clobbered x4 before it was saved).
  * ======================================================================== */
 
 /* Shared error code literal pool */
@@ -174,28 +194,16 @@ err_generic_exception:
     .section .text.vectors, "ax"
 
 sync_exception_handler:
-    adrp    x4, err_generic_exception
-    ldr     x0, [x4, #:lo12:err_generic_exception]
-    mov     x1, EXC_CLASS_SYNC
-    EXCEPTION_ENTRY_COMMON
+    EXCEPTION_ENTRY_COMMON EXC_CLASS_SYNC
 
 irq_exception_handler:
-    adrp    x4, err_generic_exception
-    ldr     x0, [x4, #:lo12:err_generic_exception]
-    mov     x1, EXC_CLASS_IRQ
-    EXCEPTION_ENTRY_COMMON
+    EXCEPTION_ENTRY_COMMON EXC_CLASS_IRQ
 
 fiq_exception_handler:
-    adrp    x4, err_generic_exception
-    ldr     x0, [x4, #:lo12:err_generic_exception]
-    mov     x1, EXC_CLASS_FIQ
-    EXCEPTION_ENTRY_COMMON
+    EXCEPTION_ENTRY_COMMON EXC_CLASS_FIQ
 
 serror_exception_handler:
-    adrp    x4, err_generic_exception
-    ldr     x0, [x4, #:lo12:err_generic_exception]
-    mov     x1, EXC_CLASS_SERROR
-    EXCEPTION_ENTRY_COMMON
+    EXCEPTION_ENTRY_COMMON EXC_CLASS_SERROR
 
 /* ========================================================================
  * VBAR setup helper

@@ -65,26 +65,62 @@ else
   pass no_dynamic_sections
 fi
 
-# --- 5c. register discipline: x0/x1 (block base + challenge) must be saved to
-# the stack before the first call, and the challenge reloaded for the return
-# value. The boot_diag_* calls may clobber any caller-saved register (AAPCS),
-# so holding the base/challenge in x9/x10 across a `bl` would be a latent bug.
-entry_asm=$(${X}objdump -d --start-address=0x180380050 --stop-address=0x1803800d0 "$BUILD/myos_m1.elf")
+# --- 5c. register discipline: x0/x1 (block base + challenge) AND x30 (the
+# hook's return address) must be saved to the stack before the first call,
+# and reloaded before `ret`. The boot_diag_* calls are normal C calls: AAPCS
+# lets them clobber every caller-saved register (x0-x18) and each `bl`
+# overwrites x30, so holding any of them across a `bl` would be a latent
+# bug (M7.35 finding V2: without the x30 stash the final `ret` re-enters
+# the epilogue in a loop and the hook never resumes — DONE_MAGIC is never
+# stored and the M1 PASS condition becomes unreachable). These are pattern
+# checks on the linked artifact; the control-flow/stack model over every
+# path (sp balance, 16-byte alignment at each call, ret target = entry
+# link, return value = ~challenge) lives in tests/test_m1_x30_abi.py.
+entry_asm=$(${X}objdump -d --no-show-raw-insn "$BUILD/myos_m1.elf" \
+  | awk '/<myos_m1_entry>:/{f=1} f{print} f && /^$/{exit}')
 prologue=$(printf '%s\n' "$entry_asm" | awk '/[[:space:]]bl[[:space:]]/{exit} {print}')
-if printf '%s\n' "$prologue" | grep -Eq 'stp[[:space:]]+x[0-9]+, x[0-9]+, \[sp, #-16\]!'; then
+if printf '%s\n' "$prologue" | grep -Eq 'stp[[:space:]]+x9, x10, \[sp, #-32\]!'; then
   pass entry_saves_x0x1
 else
   failchk entry_saves_x0x1
 fi
-if printf '%s\n' "$entry_asm" | grep -Eq 'ldr[[:space:]]+x10, \[sp, #8\]'; then
+if printf '%s\n' "$prologue" | grep -Eq 'str[[:space:]]+x30, \[sp, #16\]'; then
+  pass entry_saves_x30
+else
+  failchk entry_saves_x30
+fi
+last_bl=$(printf '%s\n' "$entry_asm" | grep -n '[[:space:]]bl[[:space:]]' | tail -1 | cut -d: -f1)
+epilogue=$(printf '%s\n' "$entry_asm" | sed -n "$((last_bl + 1)),\$p")
+if printf '%s\n' "$epilogue" | grep -Eq 'ldr[[:space:]]+x10, \[sp, #8\]'; then
   pass entry_reloads_challenge
 else
   failchk entry_reloads_challenge
 fi
-if printf '%s\n' "$entry_asm" | grep -Eq 'add[[:space:]]+sp, sp, #0x10'; then
+if printf '%s\n' "$epilogue" | grep -Eq 'ldr[[:space:]]+x30, \[sp, #16\]'; then
+  pass entry_reloads_x30
+else
+  failchk entry_reloads_x30
+fi
+if printf '%s\n' "$epilogue" | grep -Eq 'add[[:space:]]+sp, sp, #0x20'; then
   pass entry_restores_sp
 else
   failchk entry_restores_sp
+fi
+# the link register is stashed exactly once and restored exactly once
+x30_stores=$(printf '%s\n' "$entry_asm" | grep -cE 'str[[:space:]]+x30, \[sp,')
+x30_loads=$(printf '%s\n' "$entry_asm" | grep -cE 'ldr[[:space:]]+x30, \[sp,')
+if [ "$x30_stores" -eq 1 ] && [ "$x30_loads" -eq 1 ]; then
+  pass entry_x30_once
+else
+  failchk entry_x30_once
+fi
+# the x30 restore must precede the ret (the ret is the last instruction)
+ret_ln=$(printf '%s\n' "$entry_asm" | grep -nE '[[:space:]]ret$' | tail -1 | cut -d: -f1)
+rst_ln=$(printf '%s\n' "$entry_asm" | grep -nE 'ldr[[:space:]]+x30, \[sp,' | tail -1 | cut -d: -f1)
+if [ -n "$ret_ln" ] && [ -n "$rst_ln" ] && [ "$rst_ln" -lt "$ret_ln" ]; then
+  pass entry_x30_before_ret
+else
+  failchk entry_x30_before_ret
 fi
 
 # --- 6. marker bytes present in flat binary

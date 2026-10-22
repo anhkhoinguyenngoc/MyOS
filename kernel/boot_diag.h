@@ -223,16 +223,14 @@ boot_stage_t boot_diag_get_current_stage(void);
  * Captures exception context and reports via diagnostic framework.
  * ======================================================================== */
 
-/* Exception context captured by vector.S */
+/* Exception context captured by vector.S. It pushes exactly these four
+ * 64-bit words in this order; do not add fields without extending the vector
+ * macro's context push and updating the handler. */
 typedef struct {
     uint64_t esr_el1;
     uint64_t far_el1;
     uint64_t elr_el1;
     uint64_t spsr_el1;
-    uint64_t sp_el0;
-    uint64_t elr_el1_val;
-    uint64_t spsr_el1_val;
-    uint64_t sp_el0_val;
 } exception_context_t;
 
 /* Exception class identifiers (matching vector table) */
