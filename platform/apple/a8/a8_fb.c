@@ -10,9 +10,44 @@
 
 _Static_assert(sizeof(uint64_t) == 8u, "Video words must be 64-bit");
 
+/* Apple A8 / PongoOS cache maintenance granularity (lowlevel.c uses 64). */
+#define MYOS_A8_DCACHE_LINE 64u
+
 static uint64_t read_u64(uint64_t address)
 {
     return *(const volatile uint64_t *)(uintptr_t)address;
+}
+
+/*
+ * Clean the data-cache lines covering the framebuffer after pixel stores.
+ * PongoOS itself calls cache_clean() after drawing (fb.c:47,60,69,184,208,
+ * 262); the raw handoff currently arrives with D-cache off, so this is a
+ * no-op on the observed path, but it keeps the demo correct if the carrier
+ * leaves caches enabled. The host build has no AArch64 cache instructions.
+ */
+static void myos_a8_fb_clean_dcache(volatile void *base, uint64_t bytes)
+{
+#if defined(__aarch64__)
+    uintptr_t start;
+    uintptr_t end;
+    uintptr_t line;
+
+    if (base == NULL || bytes == 0u) {
+        return;
+    }
+
+    start = (uintptr_t)base;
+    end = start + (uintptr_t)bytes;
+    line = start & ~(uintptr_t)(MYOS_A8_DCACHE_LINE - 1u);
+    while (line < end) {
+        __asm__ __volatile__("dc cvac, %0" : : "r"(line) : "memory");
+        line += MYOS_A8_DCACHE_LINE;
+    }
+    __asm__ __volatile__("dsb sy" ::: "memory");
+#else
+    (void)base;
+    (void)bytes;
+#endif
 }
 
 const char *myos_a8_fb_status_name(myos_a8_fb_status_t status)
@@ -172,6 +207,7 @@ myos_a8_fb_status_t myos_a8_fb_draw_hello(uint64_t boot_args,
     for (uint64_t i = 0; i < total; i++) {
         raw[i] = MYOS_FB_BLACK;
     }
+    myos_a8_fb_clean_dcache(fb.base, fb.bytes);
 
     x = (int32_t)((fb.width - text_width) / 2u);
     y = (int32_t)((fb.height - text_height) / 2u);
@@ -181,6 +217,7 @@ myos_a8_fb_status_t myos_a8_fb_draw_hello(uint64_t boot_args,
     if (text_status != MYOS_FB_OK) {
         return MYOS_A8_FB_ERR_RENDER;
     }
+    myos_a8_fb_clean_dcache(fb.base, fb.bytes);
 
     if (pixels_written != NULL) {
         *pixels_written = count;
