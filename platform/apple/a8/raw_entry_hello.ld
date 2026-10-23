@@ -34,6 +34,9 @@ SECTIONS
     .text : {
         KEEP(*(.text.raw))
     }
+    .text.font ALIGN(8) : {
+        KEEP(*(.text.font))
+    }
     .report 0x200 : {
         KEEP(*(.report))
         KEEP(*(.report.*))
@@ -82,6 +85,8 @@ SECTIONS
 /* Handoff-critical pins (same meanings as raw_entry.ld). */
 ASSERT(myos_a8_raw_entry == 0x0, "raw entry must be at file offset 0");
 ASSERT(SIZEOF(.text) <= 0x200, "trampoline must stay below the report block");
+ASSERT(SIZEOF(.text.font) <= 0x200 - SIZEOF(.text),
+       "font table must fit before the report block");
 ASSERT(raw_entry_report == 0x200, "raw entry report must be at file offset 0x200");
 ASSERT((__stack_bottom & 0xf) == 0, "stack bottom must be 16-byte aligned");
 ASSERT((__stack_top & 0xf) == 0, "stack top must be 16-byte aligned");

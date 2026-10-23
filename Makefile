@@ -44,8 +44,14 @@ KERNEL_CROSSFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-pic -fno-pie \
                      -Wall -Wextra -mgeneral-regs-only $(PLATFORM_DEFS)
 
 .PHONY: all payload m1ctl kernel probe raw-entry raw-entry-check \
-        raw-entry-hello raw-entry-hello-check raw-entry-red \
-        raw-entry-diag raw-entry-diag2 raw-entry-diag3 \
+        raw-entry-hello raw-entry-hello-check raw-entry-hello-nocache \
+        raw-entry-hello-debug raw-entry-hello-bypass \
+        raw-entry-hello-hardcoded raw-entry-hello-fontfix \
+        raw-entry-hello-fontfix-bypass raw-entry-console raw-entry-console-black \
+        raw-entry-console-h raw-entry-console-fixed raw-entry-console-diag \
+        raw-entry-red \
+        raw-entry-diag raw-entry-diag2 raw-entry-diag3 console-check \
+        raw-entry-console-check \
         qemu offline test clean \
         usb-watch usb-watch-test usb-watch-check pongo-addr-check \
         pongo-artifact-check regs-output-check \
@@ -229,6 +235,611 @@ $(RAW_HELLO_BIN): $(RAW_HELLO_ELF)
 raw-entry-hello-check: $(RAW_HELLO_BIN) $(RAW_BIN)
 	python3 tests/test_a8_hello_image.py --require-artifact
 	@echo "=== RAW-ENTRY-HELLO CHECK: PASS (layout + opt-in call path) ==="
+
+RAW_HELLO_NOCACHE_ELF := $(BUILD)/raw_entry_hello_nocache.elf
+RAW_HELLO_NOCACHE_BIN := $(BUILD)/raw_entry_hello_nocache.bin
+RAW_HELLO_NOCACHE_DIR := $(BUILD)/raw_entry-hello-nocache
+
+raw-entry-hello-nocache: $(RAW_HELLO_NOCACHE_BIN)
+	@echo "=== RAW-ENTRY-HELLO-NOCACHE: built $(RAW_HELLO_NOCACHE_BIN) (cache-flush isolation; not production) ==="
+
+$(RAW_HELLO_NOCACHE_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_NOCACHE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_NOCACHE_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                     platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_NOCACHE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -I. -c $< -o $@
+
+$(RAW_HELLO_NOCACHE_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_NOCACHE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_NOCACHE_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_NOCACHE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_HELLO_NOCACHE_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                  kernel/fb_text.h | $(RAW_HELLO_NOCACHE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_NO_CACHE_FLUSH=1 -I. -c $< -o $@
+
+$(RAW_HELLO_NOCACHE_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_NOCACHE_ELF): $(RAW_HELLO_NOCACHE_DIR)/raw_entry.o \
+                          $(RAW_HELLO_NOCACHE_DIR)/raw_main.o \
+                          $(RAW_HELLO_NOCACHE_DIR)/raw_vectors.o \
+                          $(RAW_HELLO_NOCACHE_DIR)/fb_text.o \
+                          $(RAW_HELLO_NOCACHE_DIR)/a8_fb.o \
+                          platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_NOCACHE_DIR)/raw_entry.o \
+		$(RAW_HELLO_NOCACHE_DIR)/raw_main.o \
+		$(RAW_HELLO_NOCACHE_DIR)/raw_vectors.o \
+		$(RAW_HELLO_NOCACHE_DIR)/fb_text.o \
+		$(RAW_HELLO_NOCACHE_DIR)/a8_fb.o
+
+$(RAW_HELLO_NOCACHE_BIN): $(RAW_HELLO_NOCACHE_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_HELLO_DEBUG_ELF := $(BUILD)/raw_entry_hello_debug.elf
+RAW_HELLO_DEBUG_BIN := $(BUILD)/raw_entry_hello_debug.bin
+RAW_HELLO_DEBUG_DIR := $(BUILD)/raw_entry-hello-debug
+
+raw-entry-hello-debug: $(RAW_HELLO_DEBUG_BIN)
+	@echo "=== RAW-ENTRY-HELLO-DEBUG: built $(RAW_HELLO_DEBUG_BIN) (staged markers; not production) ==="
+
+$(RAW_HELLO_DEBUG_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_DEBUG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_DEBUG_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                   platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_DEBUG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_HELLO_DEBUG=1 -I. -c $< -o $@
+
+$(RAW_HELLO_DEBUG_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_DEBUG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_DEBUG_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_DEBUG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_HELLO_DEBUG_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                kernel/fb_text.h | $(RAW_HELLO_DEBUG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_HELLO_DEBUG=1 -I. -c $< -o $@
+
+$(RAW_HELLO_DEBUG_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_DEBUG_ELF): $(RAW_HELLO_DEBUG_DIR)/raw_entry.o \
+                        $(RAW_HELLO_DEBUG_DIR)/raw_main.o \
+                        $(RAW_HELLO_DEBUG_DIR)/raw_vectors.o \
+                        $(RAW_HELLO_DEBUG_DIR)/fb_text.o \
+                        $(RAW_HELLO_DEBUG_DIR)/a8_fb.o \
+                        platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_DEBUG_DIR)/raw_entry.o \
+		$(RAW_HELLO_DEBUG_DIR)/raw_main.o \
+		$(RAW_HELLO_DEBUG_DIR)/raw_vectors.o \
+		$(RAW_HELLO_DEBUG_DIR)/fb_text.o \
+		$(RAW_HELLO_DEBUG_DIR)/a8_fb.o
+
+$(RAW_HELLO_DEBUG_BIN): $(RAW_HELLO_DEBUG_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_HELLO_BYPASS_ELF := $(BUILD)/raw_entry_hello_bypass.elf
+RAW_HELLO_BYPASS_BIN := $(BUILD)/raw_entry_hello_bypass.bin
+RAW_HELLO_BYPASS_DIR := $(BUILD)/raw_entry-hello-bypass
+
+raw-entry-hello-bypass: $(RAW_HELLO_BYPASS_BIN)
+	@echo "=== RAW-ENTRY-HELLO-BYPASS: built $(RAW_HELLO_BYPASS_BIN) (validation bypass; not production) ==="
+
+$(RAW_HELLO_BYPASS_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_BYPASS_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                    platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_HELLO_BYPASS=1 -I. -c $< -o $@
+
+$(RAW_HELLO_BYPASS_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_BYPASS_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_HELLO_BYPASS=1 -I. -c $< -o $@
+
+$(RAW_HELLO_BYPASS_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                 kernel/fb_text.h | $(RAW_HELLO_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_HELLO_BYPASS=1 -I. -c $< -o $@
+
+$(RAW_HELLO_BYPASS_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_BYPASS_ELF): $(RAW_HELLO_BYPASS_DIR)/raw_entry.o \
+                         $(RAW_HELLO_BYPASS_DIR)/raw_main.o \
+                         $(RAW_HELLO_BYPASS_DIR)/raw_vectors.o \
+                         $(RAW_HELLO_BYPASS_DIR)/fb_text.o \
+                         $(RAW_HELLO_BYPASS_DIR)/a8_fb.o \
+                         platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_BYPASS_DIR)/raw_entry.o \
+		$(RAW_HELLO_BYPASS_DIR)/raw_main.o \
+		$(RAW_HELLO_BYPASS_DIR)/raw_vectors.o \
+		$(RAW_HELLO_BYPASS_DIR)/fb_text.o \
+		$(RAW_HELLO_BYPASS_DIR)/a8_fb.o
+
+$(RAW_HELLO_BYPASS_BIN): $(RAW_HELLO_BYPASS_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_HELLO_HARDCODED_ELF := $(BUILD)/raw_entry_hello_hardcoded.elf
+RAW_HELLO_HARDCODED_BIN := $(BUILD)/raw_entry_hello_hardcoded.bin
+RAW_HELLO_HARDCODED_DIR := $(BUILD)/raw_entry-hello-hardcoded
+
+raw-entry-hello-hardcoded: $(RAW_HELLO_HARDCODED_BIN)
+	@echo "=== RAW-ENTRY-HELLO-HARDCODED: built $(RAW_HELLO_HARDCODED_BIN) (inline H pixel test; not production) ==="
+
+$(RAW_HELLO_HARDCODED_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_HARDCODED_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                       platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_HELLO_HARDCODED=1 -I. -c $< -o $@
+
+$(RAW_HELLO_HARDCODED_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_HARDCODED_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_HELLO_HARDCODED_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                    kernel/fb_text.h | $(RAW_HELLO_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_HELLO_HARDCODED=1 -I. -c $< -o $@
+
+$(RAW_HELLO_HARDCODED_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_HARDCODED_ELF): $(RAW_HELLO_HARDCODED_DIR)/raw_entry.o \
+                            $(RAW_HELLO_HARDCODED_DIR)/raw_main.o \
+                            $(RAW_HELLO_HARDCODED_DIR)/raw_vectors.o \
+                            $(RAW_HELLO_HARDCODED_DIR)/fb_text.o \
+                            $(RAW_HELLO_HARDCODED_DIR)/a8_fb.o \
+                            platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_HARDCODED_DIR)/raw_entry.o \
+		$(RAW_HELLO_HARDCODED_DIR)/raw_main.o \
+		$(RAW_HELLO_HARDCODED_DIR)/raw_vectors.o \
+		$(RAW_HELLO_HARDCODED_DIR)/fb_text.o \
+		$(RAW_HELLO_HARDCODED_DIR)/a8_fb.o
+
+$(RAW_HELLO_HARDCODED_BIN): $(RAW_HELLO_HARDCODED_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_HELLO_FONTFIX_ELF := $(BUILD)/raw_entry_hello_fontfix.elf
+RAW_HELLO_FONTFIX_BIN := $(BUILD)/raw_entry_hello_fontfix.bin
+RAW_HELLO_FONTFIX_DIR := $(BUILD)/raw_entry-hello-fontfix
+
+raw-entry-hello-fontfix: $(RAW_HELLO_FONTFIX_BIN)
+	@echo "=== RAW-ENTRY-HELLO-FONTFIX: built $(RAW_HELLO_FONTFIX_BIN) (font table in .text.font; not production) ==="
+
+$(RAW_HELLO_FONTFIX_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_FONTFIX_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                   platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_FONTFIX_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -I. -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_FONTFIX_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_FONTFIX_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_FONT_TEXT=1 -I. -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                 kernel/fb_text.h | $(RAW_HELLO_FONTFIX_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_FONTFIX_ELF): $(RAW_HELLO_FONTFIX_DIR)/raw_entry.o \
+                         $(RAW_HELLO_FONTFIX_DIR)/raw_main.o \
+                         $(RAW_HELLO_FONTFIX_DIR)/raw_vectors.o \
+                         $(RAW_HELLO_FONTFIX_DIR)/fb_text.o \
+                         $(RAW_HELLO_FONTFIX_DIR)/a8_fb.o \
+                         platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_FONTFIX_DIR)/raw_entry.o \
+		$(RAW_HELLO_FONTFIX_DIR)/raw_main.o \
+		$(RAW_HELLO_FONTFIX_DIR)/raw_vectors.o \
+		$(RAW_HELLO_FONTFIX_DIR)/fb_text.o \
+		$(RAW_HELLO_FONTFIX_DIR)/a8_fb.o
+
+$(RAW_HELLO_FONTFIX_BIN): $(RAW_HELLO_FONTFIX_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_HELLO_FONTFIX_BYPASS_ELF := $(BUILD)/raw_entry_hello_fontfix_bypass.elf
+RAW_HELLO_FONTFIX_BYPASS_BIN := $(BUILD)/raw_entry_hello_fontfix_bypass.bin
+RAW_HELLO_FONTFIX_BYPASS_DIR := $(BUILD)/raw_entry-hello-fontfix-bypass
+
+raw-entry-hello-fontfix-bypass: $(RAW_HELLO_FONTFIX_BYPASS_BIN)
+	@echo "=== RAW-ENTRY-HELLO-FONTFIX-BYPASS: built $(RAW_HELLO_FONTFIX_BYPASS_BIN) (font .text.font + validation bypass + no cache flush; not production) ==="
+
+$(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_HELLO_FONTFIX_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                            platform/apple/a8/a8_fb.h kernel/fb_text.h | $(RAW_HELLO_FONTFIX_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_RENDER_HELLO=1 -DMYOS_A8_HELLO_FONTFIX_BYPASS=1 \
+		-DMYOS_A8_HELLO_BYPASS=1 -I. -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_HELLO_FONTFIX_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_BYPASS_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_HELLO_FONTFIX_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_HELLO_BYPASS=1 -DMYOS_A8_FONT_TEXT=1 -I. -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_BYPASS_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                         kernel/fb_text.h | $(RAW_HELLO_FONTFIX_BYPASS_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_HELLO_FONTFIX_BYPASS=1 -DMYOS_A8_HELLO_BYPASS=1 \
+		-DMYOS_A8_NO_CACHE_FLUSH=1 -I. -c $< -o $@
+
+$(RAW_HELLO_FONTFIX_BYPASS_DIR):
+	@mkdir -p $@
+
+$(RAW_HELLO_FONTFIX_BYPASS_ELF): $(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_entry.o \
+                                 $(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_main.o \
+                                 $(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_vectors.o \
+                                 $(RAW_HELLO_FONTFIX_BYPASS_DIR)/fb_text.o \
+                                 $(RAW_HELLO_FONTFIX_BYPASS_DIR)/a8_fb.o \
+                                 platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_entry.o \
+		$(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_main.o \
+		$(RAW_HELLO_FONTFIX_BYPASS_DIR)/raw_vectors.o \
+		$(RAW_HELLO_FONTFIX_BYPASS_DIR)/fb_text.o \
+		$(RAW_HELLO_FONTFIX_BYPASS_DIR)/a8_fb.o
+
+$(RAW_HELLO_FONTFIX_BYPASS_BIN): $(RAW_HELLO_FONTFIX_BYPASS_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_CONSOLE_ELF := $(BUILD)/raw_entry_console.elf
+RAW_CONSOLE_BIN := $(BUILD)/raw_entry_console.bin
+RAW_CONSOLE_DIR := $(BUILD)/raw_entry-console
+
+raw-entry-console: $(RAW_CONSOLE_BIN)
+	@echo "=== RAW-ENTRY-CONSOLE: built $(RAW_CONSOLE_BIN) (inline-font console + shell demo; not production) ==="
+
+console-check:
+	python3 tests/test_fb_console.py
+
+raw-entry-console-check: raw-entry-console
+	python3 tests/test_raw_console_image.py --require-artifact
+
+$(RAW_CONSOLE_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                platform/apple/a8/a8_fb.h kernel/fb_text.h \
+                                kernel/fb_console.h kernel/shell.h | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_CONSOLE=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_DIR)/fb_console.o: kernel/fb_console.c kernel/fb_console.h \
+                                  kernel/font_inline.h platform/apple/a8/a8_fb.h | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIR)/shell.o: kernel/shell.c kernel/shell.h kernel/fb_console.h | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                            kernel/fb_text.h | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_CONSOLE_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIR):
+	@mkdir -p $@
+
+$(RAW_CONSOLE_ELF): $(RAW_CONSOLE_DIR)/raw_entry.o \
+                    $(RAW_CONSOLE_DIR)/raw_main.o \
+                    $(RAW_CONSOLE_DIR)/raw_vectors.o \
+                    $(RAW_CONSOLE_DIR)/fb_console.o \
+                    $(RAW_CONSOLE_DIR)/shell.o \
+                    $(RAW_CONSOLE_DIR)/a8_fb.o \
+                    $(RAW_CONSOLE_DIR)/fb_text.o \
+                    platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_CONSOLE_DIR)/raw_entry.o \
+		$(RAW_CONSOLE_DIR)/raw_main.o \
+		$(RAW_CONSOLE_DIR)/raw_vectors.o \
+		$(RAW_CONSOLE_DIR)/fb_console.o \
+		$(RAW_CONSOLE_DIR)/shell.o \
+		$(RAW_CONSOLE_DIR)/a8_fb.o \
+		$(RAW_CONSOLE_DIR)/fb_text.o
+
+$(RAW_CONSOLE_BIN): $(RAW_CONSOLE_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_CONSOLE_BLACK_ELF := $(BUILD)/raw_entry_console_black.elf
+RAW_CONSOLE_BLACK_BIN := $(BUILD)/raw_entry_console_black.bin
+RAW_CONSOLE_BLACK_DIR := $(BUILD)/raw_entry-console-black
+
+raw-entry-console-black: $(RAW_CONSOLE_BLACK_BIN)
+	@echo "=== RAW-ENTRY-CONSOLE-BLACK: built $(RAW_CONSOLE_BLACK_BIN) (console_init only; not production) ==="
+
+$(RAW_CONSOLE_BLACK_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_CONSOLE_BLACK_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_BLACK_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                     platform/apple/a8/a8_fb.h kernel/fb_text.h \
+                                     kernel/fb_console.h | $(RAW_CONSOLE_BLACK_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_CONSOLE_BLACK=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_BLACK_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_CONSOLE_BLACK_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_BLACK_DIR)/fb_console.o: kernel/fb_console.c kernel/fb_console.h \
+                                       kernel/font_inline.h platform/apple/a8/a8_fb.h | $(RAW_CONSOLE_BLACK_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_BLACK=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_BLACK_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                  kernel/fb_text.h | $(RAW_CONSOLE_BLACK_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_BLACK_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_CONSOLE_BLACK_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_BLACK_DIR):
+	@mkdir -p $@
+
+$(RAW_CONSOLE_BLACK_ELF): $(RAW_CONSOLE_BLACK_DIR)/raw_entry.o \
+                          $(RAW_CONSOLE_BLACK_DIR)/raw_main.o \
+                          $(RAW_CONSOLE_BLACK_DIR)/raw_vectors.o \
+                          $(RAW_CONSOLE_BLACK_DIR)/fb_console.o \
+                          $(RAW_CONSOLE_BLACK_DIR)/a8_fb.o \
+                          $(RAW_CONSOLE_BLACK_DIR)/fb_text.o \
+                          platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_CONSOLE_BLACK_DIR)/raw_entry.o \
+		$(RAW_CONSOLE_BLACK_DIR)/raw_main.o \
+		$(RAW_CONSOLE_BLACK_DIR)/raw_vectors.o \
+		$(RAW_CONSOLE_BLACK_DIR)/fb_console.o \
+		$(RAW_CONSOLE_BLACK_DIR)/a8_fb.o \
+		$(RAW_CONSOLE_BLACK_DIR)/fb_text.o
+
+$(RAW_CONSOLE_BLACK_BIN): $(RAW_CONSOLE_BLACK_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_CONSOLE_H_ELF := $(BUILD)/raw_entry_console_h.elf
+RAW_CONSOLE_H_BIN := $(BUILD)/raw_entry_console_h.bin
+RAW_CONSOLE_H_DIR := $(BUILD)/raw_entry-console-h
+
+raw-entry-console-h: $(RAW_CONSOLE_H_BIN)
+	@echo "=== RAW-ENTRY-CONSOLE-H: built $(RAW_CONSOLE_H_BIN) (console_init + centered H; not production) ==="
+
+$(RAW_CONSOLE_H_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_CONSOLE_H_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_H_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                 platform/apple/a8/a8_fb.h kernel/fb_text.h \
+                                 kernel/fb_console.h | $(RAW_CONSOLE_H_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_CONSOLE_H=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_H_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_CONSOLE_H_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_H_DIR)/fb_console.o: kernel/fb_console.c kernel/fb_console.h \
+                                   kernel/font_inline.h platform/apple/a8/a8_fb.h | $(RAW_CONSOLE_H_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_H=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_H_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                              kernel/fb_text.h | $(RAW_CONSOLE_H_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_H_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_CONSOLE_H_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_H_DIR):
+	@mkdir -p $@
+
+$(RAW_CONSOLE_H_ELF): $(RAW_CONSOLE_H_DIR)/raw_entry.o \
+                      $(RAW_CONSOLE_H_DIR)/raw_main.o \
+                      $(RAW_CONSOLE_H_DIR)/raw_vectors.o \
+                      $(RAW_CONSOLE_H_DIR)/fb_console.o \
+                      $(RAW_CONSOLE_H_DIR)/a8_fb.o \
+                      $(RAW_CONSOLE_H_DIR)/fb_text.o \
+                      platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_CONSOLE_H_DIR)/raw_entry.o \
+		$(RAW_CONSOLE_H_DIR)/raw_main.o \
+		$(RAW_CONSOLE_H_DIR)/raw_vectors.o \
+		$(RAW_CONSOLE_H_DIR)/fb_console.o \
+		$(RAW_CONSOLE_H_DIR)/a8_fb.o \
+		$(RAW_CONSOLE_H_DIR)/fb_text.o
+
+$(RAW_CONSOLE_H_BIN): $(RAW_CONSOLE_H_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_CONSOLE_FIXED_ELF := $(BUILD)/raw_entry_console_fixed.elf
+RAW_CONSOLE_FIXED_BIN := $(BUILD)/raw_entry_console_fixed.bin
+RAW_CONSOLE_FIXED_DIR := $(BUILD)/raw_entry-console-fixed
+
+raw-entry-console-fixed: $(RAW_CONSOLE_FIXED_BIN)
+	@echo "=== RAW-ENTRY-CONSOLE-FIXED: built $(RAW_CONSOLE_FIXED_BIN) (visible-width console + shell demo; not production) ==="
+
+$(RAW_CONSOLE_FIXED_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                     platform/apple/a8/a8_fb.h kernel/fb_text.h \
+                                     kernel/fb_console.h kernel/shell.h | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_CONSOLE_FIXED=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR)/fb_console.o: kernel/fb_console.c kernel/fb_console.h \
+                                       kernel/font_inline.h platform/apple/a8/a8_fb.h | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_FIXED=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR)/shell.o: kernel/shell.c kernel/shell.h kernel/fb_console.h | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_FIXED=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                  kernel/fb_text.h | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_CONSOLE_FIXED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_FIXED_DIR):
+	@mkdir -p $@
+
+$(RAW_CONSOLE_FIXED_ELF): $(RAW_CONSOLE_FIXED_DIR)/raw_entry.o \
+                          $(RAW_CONSOLE_FIXED_DIR)/raw_main.o \
+                          $(RAW_CONSOLE_FIXED_DIR)/raw_vectors.o \
+                          $(RAW_CONSOLE_FIXED_DIR)/fb_console.o \
+                          $(RAW_CONSOLE_FIXED_DIR)/shell.o \
+                          $(RAW_CONSOLE_FIXED_DIR)/a8_fb.o \
+                          $(RAW_CONSOLE_FIXED_DIR)/fb_text.o \
+                          platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_CONSOLE_FIXED_DIR)/raw_entry.o \
+		$(RAW_CONSOLE_FIXED_DIR)/raw_main.o \
+		$(RAW_CONSOLE_FIXED_DIR)/raw_vectors.o \
+		$(RAW_CONSOLE_FIXED_DIR)/fb_console.o \
+		$(RAW_CONSOLE_FIXED_DIR)/shell.o \
+		$(RAW_CONSOLE_FIXED_DIR)/a8_fb.o \
+		$(RAW_CONSOLE_FIXED_DIR)/fb_text.o
+
+$(RAW_CONSOLE_FIXED_BIN): $(RAW_CONSOLE_FIXED_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_CONSOLE_DIAG_ELF := $(BUILD)/raw_entry_console_diag.elf
+RAW_CONSOLE_DIAG_BIN := $(BUILD)/raw_entry_console_diag.bin
+RAW_CONSOLE_DIAG_DIR := $(BUILD)/raw_entry-console-diag
+
+raw-entry-console-diag: $(RAW_CONSOLE_DIAG_BIN)
+	@echo "=== RAW-ENTRY-CONSOLE-DIAG: built $(RAW_CONSOLE_DIAG_BIN) (red/green row_bytes check; not production) ==="
+
+$(RAW_CONSOLE_DIAG_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_CONSOLE_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_DIAG_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                    platform/apple/a8/a8_fb.h kernel/fb_text.h \
+                                    kernel/fb_console.h | $(RAW_CONSOLE_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_CONSOLE_DIAG=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIAG_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_CONSOLE_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_DIAG_DIR)/fb_console.o: kernel/fb_console.c kernel/fb_console.h \
+                                      kernel/font_inline.h platform/apple/a8/a8_fb.h | $(RAW_CONSOLE_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_DIAG=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIAG_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                 kernel/fb_text.h | $(RAW_CONSOLE_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIAG_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_CONSOLE_DIAG_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_DIAG_DIR):
+	@mkdir -p $@
+
+$(RAW_CONSOLE_DIAG_ELF): $(RAW_CONSOLE_DIAG_DIR)/raw_entry.o \
+                         $(RAW_CONSOLE_DIAG_DIR)/raw_main.o \
+                         $(RAW_CONSOLE_DIAG_DIR)/raw_vectors.o \
+                         $(RAW_CONSOLE_DIAG_DIR)/fb_console.o \
+                         $(RAW_CONSOLE_DIAG_DIR)/a8_fb.o \
+                         $(RAW_CONSOLE_DIAG_DIR)/fb_text.o \
+                         platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_CONSOLE_DIAG_DIR)/raw_entry.o \
+		$(RAW_CONSOLE_DIAG_DIR)/raw_main.o \
+		$(RAW_CONSOLE_DIAG_DIR)/raw_vectors.o \
+		$(RAW_CONSOLE_DIAG_DIR)/fb_console.o \
+		$(RAW_CONSOLE_DIAG_DIR)/a8_fb.o \
+		$(RAW_CONSOLE_DIAG_DIR)/fb_text.o
+
+$(RAW_CONSOLE_DIAG_BIN): $(RAW_CONSOLE_DIAG_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
+
+RAW_CONSOLE_HARDCODED_ELF := $(BUILD)/raw_entry_console_hardcoded.elf
+RAW_CONSOLE_HARDCODED_BIN := $(BUILD)/raw_entry_console_hardcoded.bin
+RAW_CONSOLE_HARDCODED_DIR := $(BUILD)/raw_entry-console-hardcoded
+
+raw-entry-console-hardcoded: $(RAW_CONSOLE_HARDCODED_BIN)
+	@echo "=== RAW-ENTRY-CONSOLE-HARDCODED: built $(RAW_CONSOLE_HARDCODED_BIN) (hardcoded console bypass g_console; not production) ==="
+
+$(RAW_CONSOLE_HARDCODED_DIR)/raw_entry.o: platform/apple/a8/raw_entry.S | $(RAW_CONSOLE_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_HARDCODED_DIR)/raw_main.o: platform/apple/a8/raw_main.c \
+                                         platform/apple/a8/a8_fb.h kernel/fb_text.h \
+                                         kernel/fb_console.h | $(RAW_CONSOLE_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -ffunction-sections \
+		-DMYOS_A8_CONSOLE_HARDCODED=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_HARDCODED_DIR)/raw_vectors.o: platform/apple/a8/raw_vectors.S | $(RAW_CONSOLE_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -c $< -o $@
+
+$(RAW_CONSOLE_HARDCODED_DIR)/fb_console.o: kernel/fb_console.c kernel/fb_console.h \
+                                           kernel/font_inline.h platform/apple/a8/a8_fb.h | $(RAW_CONSOLE_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_HARDCODED=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_HARDCODED_DIR)/a8_fb.o: platform/apple/a8/a8_fb.c platform/apple/a8/a8_fb.h \
+                                      kernel/fb_text.h | $(RAW_CONSOLE_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables \
+		-DMYOS_A8_CONSOLE_HARDCODED=1 -I. -c $< -o $@
+
+$(RAW_CONSOLE_HARDCODED_DIR)/fb_text.o: kernel/fb_text.c kernel/fb_text.h | $(RAW_CONSOLE_HARDCODED_DIR)
+	$(CROSS_CC) $(CROSSFLAGS) -mgeneral-regs-only -fno-jump-tables -I. -c $< -o $@
+
+$(RAW_CONSOLE_HARDCODED_DIR):
+	@mkdir -p $@
+
+$(RAW_CONSOLE_HARDCODED_ELF): $(RAW_CONSOLE_HARDCODED_DIR)/raw_entry.o \
+                              $(RAW_CONSOLE_HARDCODED_DIR)/raw_main.o \
+                              $(RAW_CONSOLE_HARDCODED_DIR)/raw_vectors.o \
+                              $(RAW_CONSOLE_HARDCODED_DIR)/fb_console.o \
+                              $(RAW_CONSOLE_HARDCODED_DIR)/a8_fb.o \
+                              $(RAW_CONSOLE_HARDCODED_DIR)/fb_text.o \
+                              platform/apple/a8/raw_entry_hello.ld
+	$(CROSS_LD) -T platform/apple/a8/raw_entry_hello.ld --build-id=none -o $@ \
+		$(RAW_CONSOLE_HARDCODED_DIR)/raw_entry.o \
+		$(RAW_CONSOLE_HARDCODED_DIR)/raw_main.o \
+		$(RAW_CONSOLE_HARDCODED_DIR)/raw_vectors.o \
+		$(RAW_CONSOLE_HARDCODED_DIR)/fb_console.o \
+		$(RAW_CONSOLE_HARDCODED_DIR)/a8_fb.o \
+		$(RAW_CONSOLE_HARDCODED_DIR)/fb_text.o
+
+$(RAW_CONSOLE_HARDCODED_BIN): $(RAW_CONSOLE_HARDCODED_ELF)
+	$(CROSS_OBJCOPY) -O binary $< $@
 
 RAW_RED_ELF := $(BUILD)/raw_entry_red.elf
 RAW_RED_BIN := $(BUILD)/raw_entry_red.bin

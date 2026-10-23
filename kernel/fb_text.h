@@ -131,4 +131,11 @@ myos_fb_status_t myos_fb_draw_text(const myos_fb_t *fb,
                                    const char *s, uint32_t scale,
                                    uint64_t *pixels_written);
 
+#if defined(MYOS_A8_HELLO_BYPASS) && MYOS_A8_HELLO_BYPASS
+myos_fb_status_t myos_fb_draw_text_unchecked(const myos_fb_t *fb,
+                                             int32_t x, int32_t y,
+                                             const char *s, uint32_t scale,
+                                             uint64_t *pixels_written);
+#endif
+
 #endif /* MYOS_KERNEL_FB_TEXT_H */

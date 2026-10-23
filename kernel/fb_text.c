@@ -20,8 +20,14 @@ typedef struct {
     uint8_t rows[MYOS_FB_FONT_HEIGHT];
 } myos_fb_glyph_t;
 
-static const myos_fb_glyph_t myos_fb_font[]
-    __attribute__((section(".rodata.early"))) = {
+#if defined(MYOS_A8_FONT_TEXT) && MYOS_A8_FONT_TEXT
+#define MYOS_FB_FONT_SECTION \
+    __attribute__((section(".text.font"), used, aligned(8)))
+#else
+#define MYOS_FB_FONT_SECTION __attribute__((section(".rodata.early")))
+#endif
+
+static const myos_fb_glyph_t myos_fb_font[] MYOS_FB_FONT_SECTION = {
     { ' ', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } },
     { 'H', { 0x00, 0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00 } },
     { 'U', { 0x00, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00 } },
@@ -253,3 +259,69 @@ myos_fb_status_t myos_fb_draw_text(const myos_fb_t *fb,
     }
     return MYOS_FB_OK;
 }
+
+#if defined(MYOS_A8_HELLO_BYPASS) && MYOS_A8_HELLO_BYPASS
+myos_fb_status_t myos_fb_draw_text_unchecked(const myos_fb_t *fb,
+                                             int32_t x, int32_t y,
+                                             const char *s, uint32_t scale,
+                                             uint64_t *pixels_written)
+{
+    size_t chars = 0;
+    uint64_t count = 0;
+
+    if (pixels_written != NULL) {
+        *pixels_written = 0;
+    }
+    if (fb == NULL || fb->base == NULL || s == NULL) {
+        return MYOS_FB_ERR_NULL;
+    }
+    if (scale == 0u || scale > MYOS_FB_MAX_SCALE) {
+        return MYOS_FB_ERR_GEOMETRY;
+    }
+
+    while (s[chars] != '\0') {
+        if (chars >= MYOS_FB_MAX_TEXT) {
+            return MYOS_FB_ERR_RANGE;
+        }
+        if (glyph_for(s[chars]) == NULL) {
+            return MYOS_FB_ERR_GLYPH;
+        }
+        chars++;
+    }
+
+    for (size_t i = 0; i < chars; i++) {
+        const myos_fb_glyph_t *glyph = glyph_for(s[i]);
+        if (glyph == NULL) {
+            return MYOS_FB_ERR_GLYPH;
+        }
+        for (uint32_t row = 0; row < MYOS_FB_FONT_HEIGHT; row++) {
+            uint8_t bits = glyph->rows[row];
+            for (uint32_t col = 0; col < MYOS_FB_FONT_WIDTH; col++) {
+                if ((bits & (uint8_t)(1u << col)) == 0u) {
+                    continue;
+                }
+                for (uint32_t sy = 0; sy < scale; sy++) {
+                    for (uint32_t sx = 0; sx < scale; sx++) {
+                        int64_t px = (int64_t)x +
+                            (int64_t)((i * MYOS_FB_FONT_WIDTH + col) * scale + sx);
+                        int64_t py = (int64_t)y +
+                            (int64_t)(row * scale + sy);
+                        if (px < 0 || py < 0 ||
+                            px >= (int64_t)fb->width ||
+                            py >= (int64_t)fb->height) {
+                            continue;
+                        }
+                        put_pixel(fb, (uint32_t)px, (uint32_t)py, MYOS_FB_WHITE);
+                        count++;
+                    }
+                }
+            }
+        }
+    }
+
+    if (pixels_written != NULL) {
+        *pixels_written = count;
+    }
+    return MYOS_FB_OK;
+}
+#endif

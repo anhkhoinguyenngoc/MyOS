@@ -105,8 +105,29 @@ myos_a8_fb_status_t myos_a8_fb_from_boot_args(uint64_t boot_args,
 myos_a8_fb_status_t myos_a8_fb_draw_hello(uint64_t boot_args,
                                           uint64_t *pixels_written);
 
+#if defined(MYOS_A8_HELLO_DEBUG) && MYOS_A8_HELLO_DEBUG
+myos_a8_fb_status_t myos_a8_fb_draw_hello_debug(uint64_t boot_args,
+                                                uint64_t *pixels_written);
+#endif
+
+#if defined(MYOS_A8_HELLO_BYPASS) && MYOS_A8_HELLO_BYPASS
+myos_a8_fb_status_t myos_a8_fb_draw_hello_bypass(uint64_t boot_args);
+#endif
+
+#if defined(MYOS_A8_HELLO_FONTFIX_BYPASS) && MYOS_A8_HELLO_FONTFIX_BYPASS
+myos_a8_fb_status_t myos_a8_fb_draw_hello_fontfix_bypass(uint64_t boot_args);
+#endif
+
+#if defined(MYOS_A8_HELLO_HARDCODED) && MYOS_A8_HELLO_HARDCODED
+myos_a8_fb_status_t myos_a8_fb_draw_hello_hardcoded(uint64_t boot_args);
+#endif
+
 #if defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
 myos_a8_fb_status_t myos_a8_fb_draw_minimal_red(uint64_t boot_args);
+#endif
+
+#if defined(MYOS_A8_CONSOLE_HARDCODED) && MYOS_A8_CONSOLE_HARDCODED
+myos_a8_fb_status_t myos_a8_console_hardcoded(uint64_t boot_args);
 #endif
 
 #endif /* MYOS_PLATFORM_APPLE_A8_A8_FB_H */

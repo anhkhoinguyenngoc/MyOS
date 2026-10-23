@@ -39,6 +39,24 @@
  */
 #include <stdint.h>
 
+#if (defined(MYOS_A8_CONSOLE) && MYOS_A8_CONSOLE) || \
+    (defined(MYOS_A8_CONSOLE_FIXED) && MYOS_A8_CONSOLE_FIXED) || \
+    (defined(MYOS_A8_CONSOLE_BLACK) && MYOS_A8_CONSOLE_BLACK) || \
+    (defined(MYOS_A8_CONSOLE_H) && MYOS_A8_CONSOLE_H) || \
+    (defined(MYOS_A8_CONSOLE_DIAG) && MYOS_A8_CONSOLE_DIAG) || \
+    (defined(MYOS_A8_CONSOLE_HARDCODED) && MYOS_A8_CONSOLE_HARDCODED)
+#include "kernel/fb_console.h"
+#endif
+
+#if (defined(MYOS_A8_CONSOLE) && MYOS_A8_CONSOLE) || \
+    (defined(MYOS_A8_CONSOLE_FIXED) && MYOS_A8_CONSOLE_FIXED)
+#include "kernel/shell.h"
+#endif
+
+#if defined(MYOS_A8_CONSOLE_HARDCODED) && MYOS_A8_CONSOLE_HARDCODED
+#include "platform/apple/a8/a8_fb.h"
+#endif
+
 #if defined(MYOS_A8_RENDER_HELLO) && MYOS_A8_RENDER_HELLO
 #include "platform/apple/a8/a8_fb.h"
 #if defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
@@ -119,6 +137,29 @@ void myos_a8_raw_main(uint64_t boot_args)
     raw_entry_report.stack_top = top;
     raw_entry_report.stack_checks = checks;
 
+#if defined(MYOS_A8_CONSOLE_BLACK) && MYOS_A8_CONSOLE_BLACK
+    raw_entry_report.reserved =
+        (uint64_t)(int64_t)console_init_only(boot_args);
+#elif defined(MYOS_A8_CONSOLE_H) && MYOS_A8_CONSOLE_H
+    raw_entry_report.reserved =
+        (uint64_t)(int64_t)console_init_h(boot_args);
+#elif defined(MYOS_A8_CONSOLE_DIAG) && MYOS_A8_CONSOLE_DIAG
+    raw_entry_report.reserved =
+        (uint64_t)(int64_t)console_init_diag(boot_args);
+#elif defined(MYOS_A8_CONSOLE_HARDCODED) && MYOS_A8_CONSOLE_HARDCODED
+    raw_entry_report.reserved =
+        (uint64_t)(int64_t)myos_a8_console_hardcoded(boot_args);
+#elif (defined(MYOS_A8_CONSOLE) && MYOS_A8_CONSOLE) || \
+      (defined(MYOS_A8_CONSOLE_FIXED) && MYOS_A8_CONSOLE_FIXED)
+    {
+        int console_status = console_init(boot_args);
+        raw_entry_report.reserved = (uint64_t)(int64_t)console_status;
+        if (console_status == 0) {
+            shell_run();
+        }
+    }
+#endif
+
 #if defined(MYOS_A8_RENDER_HELLO) && MYOS_A8_RENDER_HELLO
     /*
      * Opt-in only. The adapter performs no display initialization: it reads
@@ -131,7 +172,17 @@ void myos_a8_raw_main(uint64_t boot_args)
      *   non-zero = error code from myos_a8_fb_status_t enum
      * This is a diagnostic for physical validation; not used in production.
      */
-#if defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
+#if defined(MYOS_A8_HELLO_FONTFIX_BYPASS) && MYOS_A8_HELLO_FONTFIX_BYPASS
+    raw_entry_report.reserved =
+        (uint64_t)myos_a8_fb_draw_hello_fontfix_bypass(boot_args);
+#elif defined(MYOS_A8_HELLO_HARDCODED) && MYOS_A8_HELLO_HARDCODED
+    raw_entry_report.reserved =
+        (uint64_t)myos_a8_fb_draw_hello_hardcoded(boot_args);
+#elif defined(MYOS_A8_HELLO_BYPASS) && MYOS_A8_HELLO_BYPASS
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_hello_bypass(boot_args);
+#elif defined(MYOS_A8_HELLO_DEBUG) && MYOS_A8_HELLO_DEBUG
+    raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_hello_debug(boot_args, NULL);
+#elif defined(MYOS_A8_RED_TEST) && MYOS_A8_RED_TEST
     raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_minimal_red(boot_args);
 #elif defined(MYOS_A8_DIAGNOSTIC_V3) && MYOS_A8_DIAGNOSTIC_V3
     raw_entry_report.reserved = (uint64_t)myos_a8_fb_draw_diagnostic_v3(boot_args);
